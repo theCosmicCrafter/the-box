@@ -27,6 +27,16 @@ const api = {
     content: string,
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("fs:writeAtomic", root, rel, content),
+  trashFile: (
+    root: string,
+    rel: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("fs:trash", root, rel),
+  appendTombstone: (
+    root: string,
+    edgeId: string,
+  ): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("fs:appendTombstone", root, edgeId),
 };
 
 export type BoxApi = typeof api;

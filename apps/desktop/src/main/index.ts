@@ -3,7 +3,7 @@
 // Stage 0 scope: window + folder picker + workspace scan -> file list.
 
 import { resolveInside } from "@box/core";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
@@ -98,6 +98,45 @@ void app.whenReady().then(() => {
       const tmp = join(tmpDir, `w-${randomUUID()}.tmp`);
       await writeFile(tmp, content, "utf8");
       await mkdir(dirname(abs), { recursive: true });
+      await rename(tmp, abs);
+      return { ok: true };
+    },
+  );
+
+  // Deletion means the OS Recycle Bin - never a hard delete (house rule).
+  ipcMain.handle("fs:trash", async (_e, root: string, rel: string) => {
+    const abs = resolveInside(root, rel);
+    if (abs === null) return { ok: false, error: "path escapes workspace" };
+    try {
+      await shell.trashItem(abs);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  });
+
+  // Tombstone ledger: .box/tombstones.json is a JSON array of edge ids.
+  ipcMain.handle(
+    "fs:appendTombstone",
+    async (_e, root: string, edgeId: string) => {
+      const tombRel = ".box/tombstones.json";
+      const abs = resolveInside(root, tombRel);
+      if (abs === null) return { ok: false, error: "path escapes workspace" };
+      const raw = await readFile(abs, "utf8").catch(() => "[]");
+      let ids: string[];
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        ids = Array.isArray(parsed)
+          ? parsed.filter((x): x is string => typeof x === "string")
+          : [];
+      } catch {
+        ids = [];
+      }
+      if (!ids.includes(edgeId)) ids.push(edgeId);
+      const tmpDir = join(root, ".box", "tmp");
+      await mkdir(tmpDir, { recursive: true });
+      const tmp = join(tmpDir, `t-${randomUUID()}.tmp`);
+      await writeFile(tmp, `${JSON.stringify(ids)}\n`, "utf8");
       await rename(tmp, abs);
       return { ok: true };
     },

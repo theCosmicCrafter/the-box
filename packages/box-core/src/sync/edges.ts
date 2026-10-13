@@ -36,7 +36,12 @@ export function createEdgePlan(
   boardPathRel: string,
   fromNodeId: string,
   toNodeId: string,
-  opts: { type?: string; created?: string } = {},
+  opts: {
+    type?: string;
+    created?: string;
+    fromSide?: CanvasEdge["fromSide"];
+    toSide?: CanvasEdge["toSide"];
+  } = {},
 ): { plan: WritePlan; edge: CanvasEdge; notePath: string } {
   const edgeId = newEdgeId();
   const noteRel = `${NOTES_DIR}${linkNoteName(edgeId)}`;
@@ -44,6 +49,8 @@ export function createEdgePlan(
     id: edgeId,
     fromNode: fromNodeId,
     toNode: toNodeId,
+    ...(opts.fromSide !== undefined ? { fromSide: opts.fromSide } : {}),
+    ...(opts.toSide !== undefined ? { toSide: opts.toSide } : {}),
     toEnd: "arrow",
     "box-link": linkNoteName(edgeId),
   };

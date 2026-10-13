@@ -3,19 +3,20 @@
 // world container, so edges share the DOM transform for free).
 // Geometry per DATA-MODEL + Heptabase findings: endpoint sides default
 // right->left, bezier control points extend along side normals, arrowheads
-// per fromEnd/toEnd. Dangling endpoints render as dashed stubs (I-7):
-// preserved visibly, never silently dropped.
+// per fromEnd/toEnd. Dangling endpoints render as dashed stubs (I-7).
+// Edges are clickable (fat invisible hit-path) for select+delete; a `draft`
+// prop renders the live preview while a connection is being drawn.
 
 import type { Board, CanvasEdge, CanvasNode, Side } from '@box/core';
 
-const NORMALS: Record<Side, { nx: number; ny: number }> = {
+export const NORMALS: Record<Side, { nx: number; ny: number }> = {
   top: { nx: 0, ny: -1 },
   right: { nx: 1, ny: 0 },
   bottom: { nx: 0, ny: 1 },
   left: { nx: -1, ny: 0 },
 };
 
-function anchor(node: CanvasNode, side: Side) {
+export function anchor(node: CanvasNode, side: Side) {
   const n = NORMALS[side];
   return {
     x: node.x + node.width / 2 + (n.nx * node.width) / 2,
@@ -24,31 +25,47 @@ function anchor(node: CanvasNode, side: Side) {
   };
 }
 
-export interface EdgeLayerProps {
-  board: Board;
-  brokenEdges: Set<string>; // edge ids with a missing endpoint node
+/** Cubic bezier between two anchored endpoints. */
+export function edgePathD(
+  a1: { x: number; y: number; nx: number; ny: number },
+  a2: { x: number; y: number; nx: number; ny: number }
+): string {
+  const bend = Math.max(60, Math.hypot(a2.x - a1.x, a2.y - a1.y) * 0.35);
+  return `M ${a1.x} ${a1.y} C ${a1.x + a1.nx * bend} ${a1.y + a1.ny * bend}, ${a2.x + a2.nx * bend} ${a2.y + a2.ny * bend}, ${a2.x} ${a2.y}`;
 }
 
-export function EdgeLayer({ board, brokenEdges }: EdgeLayerProps) {
+export interface DraftEdge {
+  from: { x: number; y: number; nx: number; ny: number };
+  to: { x: number; y: number; nx: number; ny: number };
+  overTarget: boolean;
+}
+
+export interface EdgeLayerProps {
+  board: Board;
+  brokenEdges: Set<string>;
+  selectedId?: string | null;
+  onSelect?: (edgeId: string | null) => void;
+  draft?: DraftEdge | null;
+}
+
+export function EdgeLayer({ board, brokenEdges, selectedId, onSelect, draft }: EdgeLayerProps) {
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
 
   const paths = board.edges.flatMap((e: CanvasEdge) => {
     const from = byId.get(e.fromNode);
     const to = byId.get(e.toNode);
-    if (!from && !to) return []; // both gone - surfaced via brokenEdges list, no geometry exists
+    if (!from && !to) return []; // both gone - surfaced via brokenEdges, no geometry exists
     const a1 = from ? anchor(from, e.fromSide ?? 'right') : null;
     const a2 = to ? anchor(to, e.toSide ?? 'left') : null;
     const broken = brokenEdges.has(e.id) || !from || !to;
     // Stub: extend the surviving anchor 60px along its outward normal.
     const start = a1 ?? { x: a2!.x - 60 * a2!.nx, y: a2!.y - 60 * a2!.ny, nx: a2!.nx, ny: a2!.ny };
     const end = a2 ?? { x: a1!.x + 60 * a1!.nx, y: a1!.y + 60 * a1!.ny, nx: a1!.nx, ny: a1!.ny };
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const dist = Math.hypot(dx, dy);
-    const bend = Math.max(60, dist * 0.35);
-    const d = `M ${start.x} ${start.y} C ${start.x + start.nx * bend} ${start.y + start.ny * bend}, ${end.x + end.nx * bend} ${end.y + end.ny * bend}, ${end.x} ${end.y}`;
-    return [{ e, d, broken }];
+    return [{ e, d: edgePathD(start, end), broken }];
   });
+
+  const marker = (end: CanvasEdge['fromEnd'], broken: boolean) =>
+    end === 'arrow' ? `url(#arrowhead${broken ? '-broken' : ''})` : undefined;
 
   return (
     <svg className="edge-layer" data-count={paths.length}>
@@ -61,14 +78,28 @@ export function EdgeLayer({ board, brokenEdges }: EdgeLayerProps) {
         </marker>
       </defs>
       {paths.map(({ e, d, broken }) => (
-        <path
-          key={e.id}
-          d={d}
-          className={`edge ${broken ? 'broken' : ''}`}
-          markerStart={e.fromEnd === 'arrow' ? `url(#arrowhead${broken ? '-broken' : ''})` : undefined}
-          markerEnd={e.toEnd === 'arrow' ? `url(#arrowhead${broken ? '-broken' : ''})` : undefined}
-        />
+        <g key={e.id}>
+          <path
+            d={d}
+            className={`edge ${broken ? 'broken' : ''} ${selectedId === e.id ? 'selected' : ''}`}
+            markerStart={marker(e.fromEnd, broken)}
+            markerEnd={marker(e.toEnd, broken)}
+          />
+          {onSelect && (
+            <path
+              d={d}
+              className="edge-hit"
+              onPointerDown={(ev) => {
+                ev.stopPropagation();
+                onSelect(e.id);
+              }}
+            />
+          )}
+        </g>
       ))}
+      {draft && (
+        <path d={edgePathD(draft.from, draft.to)} className={`edge draft ${draft.overTarget ? 'over' : ''}`} />
+      )}
     </svg>
   );
 }

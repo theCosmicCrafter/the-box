@@ -3,7 +3,8 @@
 // .box.canvas opens the BoardView; node drags persist through the
 // atomic-write IPC on commit.
 
-import { parseBoard, serializeBoard } from '@box/core';
+import type { Side, WritePlan } from '@box/core';
+import { createEdgePlan, deleteEdgePlan, parseBoard, serializeBoard } from '@box/core';
 import type { WorkspaceFile } from '@box/ui';
 import { BoardView, FileList, useBoxStore } from '@box/ui';
 import { useMemo } from 'react';
@@ -15,8 +16,27 @@ declare global {
       rescan: (root: string) => Promise<WorkspaceFile[]>;
       readFile: (root: string, rel: string) => Promise<string | null>;
       writeFileAtomic: (root: string, rel: string, content: string) => Promise<{ ok: boolean; error?: string }>;
+      trashFile: (root: string, rel: string) => Promise<{ ok: boolean; error?: string }>;
+      appendTombstone: (root: string, edgeId: string) => Promise<{ ok: boolean; error?: string }>;
     };
   }
+}
+
+/** Execute a box-core WritePlan against the workspace, steps in order. */
+async function applyPlan(root: string, plan: WritePlan): Promise<string[]> {
+  const errors: string[] = [];
+  const api = window.box;
+  if (!api) return ['no bridge'];
+  for (const step of plan.steps) {
+    const r =
+      step.op === 'write-atomic'
+        ? await api.writeFileAtomic(root, step.path, step.content)
+        : step.op === 'trash'
+          ? await api.trashFile(root, step.path)
+          : await api.appendTombstone(root, step.edgeId);
+    if (!r.ok) errors.push(`${step.op} ${'path' in step ? step.path : step.edgeId}: ${r.error}`);
+  }
+  return errors;
 }
 
 export function App() {
@@ -31,6 +51,8 @@ export function App() {
     openBoard,
     closeBoard,
     moveNode,
+    addEdge,
+    removeEdge,
   } = useBoxStore();
 
   const open = async () => {
@@ -58,6 +80,33 @@ export function App() {
     await window.box.writeFileAtomic(workspaceRoot, boardPath, serializeBoard(b));
   };
 
+  // I-1: edge draw -> link note written first, board second.
+  const createEdge = async (fromId: string, toId: string, fromSide: Side, toSide: Side) => {
+    const b = useBoxStore.getState().board;
+    if (!workspaceRoot || !b || !boardPath) return;
+    const { plan, edge } = createEdgePlan(b, boardPath, fromId, toId, { fromSide, toSide });
+    const errors = await applyPlan(workspaceRoot, plan);
+    if (errors.length === 0) {
+      addEdge(edge);
+      void rescan(); // the new link-<id>.md should appear in the file list
+    } else {
+      useBoxStore.getState().setProblems(errors);
+    }
+  };
+
+  // I-2: edge erase -> tombstone, board, note to Recycle Bin.
+  const deleteEdge = async (edgeId: string) => {
+    const b = useBoxStore.getState().board;
+    if (!workspaceRoot || !b || !boardPath) return;
+    const errors = await applyPlan(workspaceRoot, deleteEdgePlan(b, boardPath, edgeId));
+    if (errors.length === 0) {
+      removeEdge(edgeId);
+      void rescan();
+    } else {
+      useBoxStore.getState().setProblems(errors);
+    }
+  };
+
   // Broken-file detection: file nodes whose target isn't in the workspace.
   const brokenNodes = useMemo(() => {
     const have = new Set(files.map((f) => f.path));
@@ -83,6 +132,8 @@ export function App() {
           brokenNodes={brokenNodes}
           onMove={moveNode}
           onCommit={() => void saveBoard()}
+          onCreateEdge={(f, t, fs, ts) => void createEdge(f, t, fs, ts)}
+          onDeleteEdge={(id) => void deleteEdge(id)}
         />
       </main>
     );

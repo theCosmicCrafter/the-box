@@ -170,6 +170,30 @@ button:hover {
   stroke-dasharray: 6 5;
 }
 
+.edge.selected {
+  stroke: #8db4ff;
+  stroke-width: 2.5;
+}
+
+.edge.draft {
+  stroke: #8db4ff;
+  stroke-dasharray: 7 6;
+  opacity: 0.9;
+}
+
+.edge.draft.over {
+  stroke: #7ad08d;
+  stroke-dasharray: none;
+}
+
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 .edge-arrow {
   fill: #5a83c4;
 }
@@ -233,4 +257,34 @@ button:hover {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   color: #d8dce4;
+}
+
+.node.drop-target {
+  border-color: #7ad08d;
+  box-shadow: 0 0 0 3px rgba(122, 208, 141, 0.3);
+}
+
+.node-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: #2f6fed;
+  border: 2px solid #0f1115;
+  opacity: 0;
+  pointer-events: none;
+  cursor: crosshair;
+  transition: opacity 0.1s;
+}
+
+.node:hover .node-handle,
+.node.selected .node-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.node-handle:hover {
+  background: #7ad08d;
+  transform: scale(1.3);
 }

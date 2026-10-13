@@ -2,7 +2,7 @@
 // Renderer store - Zustand 5 (surveyed slot). Workspace surface + board
 // state; camera stays component-local inside the Viewport seam.
 
-import type { Board, ProblemItem } from "@box/core";
+import type { Board, CanvasEdge, ProblemItem } from "@box/core";
 import { create } from "zustand";
 
 export interface WorkspaceFile {
@@ -24,6 +24,8 @@ export interface BoxState {
   openBoard: (path: string, board: Board, problems: ProblemItem[]) => void;
   closeBoard: () => void;
   moveNode: (id: string, x: number, y: number) => void;
+  addEdge: (edge: CanvasEdge) => void;
+  removeEdge: (edgeId: string) => void;
 }
 
 export const useBoxStore = create<BoxState>((set) => ({
@@ -49,6 +51,23 @@ export const useBoxStore = create<BoxState>((set) => ({
               nodes: s.board.nodes.map((n) =>
                 n.id === id ? { ...n, x, y } : n,
               ),
+            },
+          },
+    ),
+  addEdge: (edge) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : { board: { ...s.board, edges: [...s.board.edges, edge] } },
+    ),
+  removeEdge: (edgeId) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : {
+            board: {
+              ...s.board,
+              edges: s.board.edges.filter((e) => e.id !== edgeId),
             },
           },
     ),
