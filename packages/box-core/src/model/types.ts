@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
+import type { FileKind } from "./kind.js";
+
 // The Box model types - binding contract: docs/DATA-MODEL.md §2, §3, §4.
 // Model objects ARE the JSON objects: unknown fields ride along on the
 // index signature so parse→serialize preserves them (forward tolerance).
@@ -41,7 +43,7 @@ export interface FileNode extends BaseNode {
   file: string;
   subpath?: string;
   "box-ink"?: string;
-  "box-media"?: { kind: import("./kind.js").FileKind | "doc" };
+  "box-media"?: { kind: FileKind | "doc" };
 }
 
 export interface LinkNode extends BaseNode {

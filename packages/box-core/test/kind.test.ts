@@ -9,11 +9,19 @@ describe("fileKind", () => {
     expect(fileKind("clip.mov")).toBe("video");
     expect(fileKind("mix.flac")).toBe("audio");
     expect(fileKind("doc.pdf")).toBe("pdf");
+    expect(fileKind("page.html")).toBe("html");
     expect(fileKind("data.csv")).toBe("csv");
     expect(fileKind("font.woff2")).toBe("font");
+    expect(fileKind("brand.ase")).toBe("palette");
+    expect(fileKind("painting.kra")).toBe("zip");
+    expect(fileKind("scene.glb")).toBe("model3d");
+    expect(fileKind("env.exr")).toBe("texture");
+    expect(fileKind("s.frag")).toBe("code");
+    expect(fileKind("src/app.tsx")).toBe("code");
+    expect(fileKind("shader.wgsl")).toBe("code");
     expect(fileKind("notes/a.md")).toBe("text");
-    expect(fileKind("src/app.tsx")).toBe("text");
     expect(fileKind("cfg.yaml")).toBe("text");
+    expect(fileKind("Dockerfile")).toBe("text");
   });
 
   it(".box.canvas is its own kind, not text", () => {
@@ -21,9 +29,9 @@ describe("fileKind", () => {
   });
 
   it("binaries get typed-tile kinds", () => {
-    expect(fileKind("pack.zip")).toBe("archive");
-    expect(fileKind("scene.blend")).toBe("model3d");
+    expect(fileKind("pack.rar")).toBe("archive");
     expect(fileKind("brush.psd")).toBe("document");
+    expect(fileKind("photo.cr3")).toBe("raw");
     expect(fileKind("mystery.bin")).toBe("other");
     expect(fileKind("no-extension")).toBe("other");
   });

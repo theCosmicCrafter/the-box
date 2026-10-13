@@ -12,6 +12,15 @@ import { baseName, fileKind } from "@box/core";
 import { useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
 import { screenToWorld } from "./camera.js";
+import {
+  CodeView,
+  HtmlPreview,
+  ModelPreview,
+  PalettePreview,
+  TexturePreview,
+  WaveformPreview,
+  ZipPreview,
+} from "./previews.js";
 
 const SIDES: Side[] = ["top", "right", "bottom", "left"];
 const HANDLE_POS: Record<Side, React.CSSProperties> = {
@@ -194,8 +203,9 @@ function FileBody(props: {
         <TypedTile kind={kind} path={node.file} size={props.fileSize} />
       );
     case "audio":
-      /* Heptabase audioCard precedent: a compact player chip. Controls
-         only when selected - ambient boards stay quiet. */
+      /* Heptabase audioCard precedent: a compact player chip. Waveform
+         (WebAudio decode) sits under the badge; controls only when
+         selected - ambient boards stay quiet. */
       return url !== undefined ? (
         <>
           <div className="node-audio">
@@ -206,7 +216,10 @@ function FileBody(props: {
                 onPointerDown={(e) => e.stopPropagation()}
               />
             ) : (
-              <span className="node-badge">audio</span>
+              <>
+                <WaveformPreview url={url} />
+                <span className="node-badge">audio</span>
+              </>
             )}
           </div>
           {caption}
@@ -254,6 +267,68 @@ function FileBody(props: {
       ) : (
         <TypedTile kind={kind} path={node.file} size={props.fileSize} />
       );
+    case "html":
+      /* Sandboxed: renders static layout, scripts stay off. */
+      return url !== undefined ? (
+        <>
+          <HtmlPreview url={url} />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "palette":
+      return (
+        <>
+          <PalettePreview path={node.file} excerpt={props.excerpt} url={url} />
+          {caption}
+        </>
+      );
+    case "zip":
+      return url !== undefined ? (
+        <ZipPreview url={url} path={node.file} />
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "model3d":
+      return url !== undefined ? (
+        <>
+          <ModelPreview
+            url={url}
+            path={node.file}
+            fallback={
+              <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+            }
+          />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "texture":
+      return url !== undefined ? (
+        <>
+          <TexturePreview
+            url={url}
+            path={node.file}
+            fallback={
+              <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+            }
+          />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "code":
+      return props.excerpt !== undefined ? (
+        <>
+          <CodeView text={props.excerpt} path={node.file} />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
     case "text":
       return props.excerpt !== undefined ? (
         <>
@@ -264,7 +339,13 @@ function FileBody(props: {
         <TypedTile kind={kind} path={node.file} size={props.fileSize} />
       );
     default:
-      return (
+      /* "other" that sniffed as text gets the excerpt; binaries tile. */
+      return props.excerpt !== undefined ? (
+        <>
+          <div className="node-excerpt">{props.excerpt}</div>
+          {caption}
+        </>
+      ) : (
         <>
           <TypedTile kind={kind} path={node.file} size={props.fileSize} />
           {caption}

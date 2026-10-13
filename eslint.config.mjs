@@ -1,6 +1,6 @@
 import js from "@eslint/js";
-import tseslint from "typescript-eslint";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
@@ -11,6 +11,8 @@ export default tseslint.config(
       "**/dist-types/**",
       "reference/**",
       "tests/fixtures/work/**",
+      ".tmp-eagle/**",
+      "**/.tmp-*/**",
     ],
   },
   js.configs.recommended,

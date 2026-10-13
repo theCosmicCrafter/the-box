@@ -936,3 +936,97 @@ button:hover {
   color: #7a8291;
   line-height: 1.4;
 }
+
+/* Code / shader preview - hand-rolled tokenizer, no dep */
+.node-code {
+  position: absolute;
+  inset: 18px 0 18px;
+  margin: 0;
+  padding: 4px 10px;
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #b9c0cd;
+  white-space: pre-wrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+.tok-k {
+  color: #9fc0ff;
+}
+.tok-s {
+  color: #a8d89a;
+}
+.tok-c {
+  color: #5d6675;
+  font-style: italic;
+}
+.tok-n {
+  color: #d8a06a;
+}
+.tok-p {
+  color: #c39ae0;
+}
+.tok-t {
+  color: #b9c0cd;
+}
+
+/* Palette swatches (gpl/pal/hex/ase) */
+.node-palette {
+  position: absolute;
+  inset: 18px 6px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.node-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+.node-palette-count {
+  align-self: flex-end;
+  width: 100%;
+  font-size: 10px;
+  color: #7a8291;
+  margin-top: 4px;
+}
+
+/* Zip-family listing */
+.node-ziplist {
+  position: absolute;
+  inset: 18px 0 18px;
+  padding: 2px 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #8a92a3;
+  font-family: "Cascadia Code", Consolas, monospace;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Audio waveform bars */
+.node-wave {
+  position: absolute;
+  inset: 18px 0 18px;
+  width: 100%;
+  height: calc(100% - 36px);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* three.js mounts (model + texture previews) */
+.node-model {
+  position: absolute;
+  inset: 0 0 18px;
+  pointer-events: none;
+}
+.node-model canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
