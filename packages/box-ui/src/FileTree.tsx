@@ -80,8 +80,24 @@ export function FileTree(props: {
   /** Currently open board - highlighted in the tree. */
   activePath?: string | undefined;
   onOpen?: (path: string) => void;
+  /**
+   * FR-202 "the Box": when set, only files NOT placed on the open board
+   * show - placing one makes it leave the list.
+   */
+  unplacedOnly?: boolean | undefined;
+  placedPaths?: Set<string> | undefined;
 }) {
-  const tree = useMemo(() => buildTree(props.files), [props.files]);
+  const visible = useMemo(
+    () =>
+      props.unplacedOnly && props.placedPaths
+        ? props.files.filter(
+            (f) =>
+              !props.placedPaths!.has(f.path) || f.path === props.activePath,
+          )
+        : props.files,
+    [props.files, props.unplacedOnly, props.placedPaths, props.activePath],
+  );
+  const tree = useMemo(() => buildTree(visible), [visible]);
   // Top-level dirs start expanded (better first-run demo); toggles persist
   // for the component's life - the tree remounts per workspace anyway.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -144,8 +160,12 @@ export function FileTree(props: {
   return (
     <div className="file-tree">
       <ul>{tree.map((n) => renderNode(n, 0))}</ul>
-      {props.files.length === 0 && (
-        <p className="empty">No files in this workspace yet.</p>
+      {visible.length === 0 && (
+        <p className="empty">
+          {props.unplacedOnly
+            ? "The Box is empty - everything is placed."
+            : "No files in this workspace yet."}
+        </p>
       )}
     </div>
   );

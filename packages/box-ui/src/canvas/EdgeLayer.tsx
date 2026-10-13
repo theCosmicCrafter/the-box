@@ -25,13 +25,39 @@ export function anchor(node: CanvasNode, side: Side) {
   };
 }
 
+/** Cubic bezier control points between two anchored endpoints. */
+export function edgePoints(
+  a1: { x: number; y: number; nx: number; ny: number },
+  a2: { x: number; y: number; nx: number; ny: number },
+) {
+  const bend = Math.max(60, Math.hypot(a2.x - a1.x, a2.y - a1.y) * 0.35);
+  return {
+    p0: { x: a1.x, y: a1.y },
+    c1: { x: a1.x + a1.nx * bend, y: a1.y + a1.ny * bend },
+    c2: { x: a2.x + a2.nx * bend, y: a2.y + a2.ny * bend },
+    p3: { x: a2.x, y: a2.y },
+  };
+}
+
 /** Cubic bezier between two anchored endpoints. */
 export function edgePathD(
   a1: { x: number; y: number; nx: number; ny: number },
   a2: { x: number; y: number; nx: number; ny: number },
 ): string {
-  const bend = Math.max(60, Math.hypot(a2.x - a1.x, a2.y - a1.y) * 0.35);
-  return `M ${a1.x} ${a1.y} C ${a1.x + a1.nx * bend} ${a1.y + a1.ny * bend}, ${a2.x + a2.nx * bend} ${a2.y + a2.ny * bend}, ${a2.x} ${a2.y}`;
+  const p = edgePoints(a1, a2);
+  return `M ${p.p0.x} ${p.p0.y} C ${p.c1.x} ${p.c1.y}, ${p.c2.x} ${p.c2.y}, ${p.p3.x} ${p.p3.y}`;
+}
+
+/** Bezier midpoint (t=0.5) - where edge labels sit. */
+export function edgeMidpoint(
+  a1: { x: number; y: number; nx: number; ny: number },
+  a2: { x: number; y: number; nx: number; ny: number },
+) {
+  const p = edgePoints(a1, a2);
+  return {
+    x: (p.p0.x + 3 * p.c1.x + 3 * p.c2.x + p.p3.x) / 8,
+    y: (p.p0.y + 3 * p.c1.y + 3 * p.c2.y + p.p3.y) / 8,
+  };
 }
 
 export interface DraftEdge {
@@ -77,7 +103,9 @@ export function EdgeLayer({
       nx: a1!.nx,
       ny: a1!.ny,
     };
-    return [{ e, d: edgePathD(start, end), broken }];
+    return [
+      { e, d: edgePathD(start, end), mid: edgeMidpoint(start, end), broken },
+    ];
   });
 
   const marker = (end: CanvasEdge["fromEnd"], broken: boolean) =>
@@ -109,7 +137,7 @@ export function EdgeLayer({
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
       </defs>
-      {paths.map(({ e, d, broken }) => (
+      {paths.map(({ e, d, mid, broken }) => (
         <g key={e.id}>
           <path
             d={d}
@@ -126,6 +154,15 @@ export function EdgeLayer({
                 onSelect(e.id);
               }}
             />
+          )}
+          {typeof e.label === "string" && e.label !== "" && (
+            <text
+              className={`edge-label ${selectedId === e.id ? "selected" : ""}`}
+              x={mid.x}
+              y={mid.y}
+            >
+              {e.label}
+            </text>
           )}
         </g>
       ))}

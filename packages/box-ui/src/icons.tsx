@@ -22,7 +22,10 @@ export type IconName =
   | "clipboard"
   | "trash"
   | "external"
-  | "type";
+  | "type"
+  | "pen"
+  | "eraser"
+  | "box";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   folder: (
@@ -141,6 +144,24 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M9 20h6" />
       <path d="M12 4v16" />
     </>
+  ),
+  pen: (
+    <>
+      <path d="m12 19 7-7 3 3-7 7-3-3z" />
+      <path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+      <path d="m2 2 7.586 7.586" />
+      <circle cx="11" cy="11" r="2" />
+    </>
+  ),
+  eraser: (
+    <>
+      <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+      <path d="M22 21H7" />
+      <path d="m5 11 9 9" />
+    </>
+  ),
+  box: (
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z M3.3 7 12 12l8.7-5 M12 22V12" />
   ),
 };
 

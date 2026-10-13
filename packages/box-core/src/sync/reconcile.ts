@@ -301,6 +301,32 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
             content: serializeLinkNote(fixed),
           });
         }
+        // Edge label denorm: note `type` -> board edge `label` (FR-204).
+        const edge = b.edges.find((e) => e.id === edgeId);
+        const want =
+          typeof note.frontmatter["type"] === "string" &&
+          note.frontmatter["type"] !== ""
+            ? note.frontmatter["type"]
+            : undefined;
+        if (edge && edge.label !== want) {
+          const fixed: Board = {
+            ...b,
+            edges: b.edges.map((e) => {
+              if (e.id !== edgeId) return e;
+              // Clearing means dropping the key - exactOptionalPropertyTypes
+              // forbids an explicit `label: undefined`.
+              const rest = { ...e };
+              delete rest.label;
+              return want === undefined ? rest : { ...rest, label: want };
+            }),
+          };
+          boardsChanged.set(holder.boardPath, fixed);
+          steps.push({
+            op: "write-atomic",
+            path: holder.boardPath,
+            content: serializeBoard(fixed),
+          });
+        }
       }
     }
   }

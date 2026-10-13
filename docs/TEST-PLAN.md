@@ -131,18 +131,52 @@ lossy UTF-8 `fs_read` (matches prior Node semantics, never null on binary).
 
 ## 8. Verification matrix (living)
 
-| FR                    | test                       | stage | status  |
-| --------------------- | -------------------------- | ----- | ------- |
-| FR-101                | `e2e-open-workspace`       | 1     | planned |
-| FR-105                | `it-ink-sidecar`           | 1     | planned |
-| FR-107                | `invariant-I1-draw-edge`   | 1     | planned |
-| FR-108                | `invariant-I2-erase-edge`  | 1     | planned |
-| FR-109                | `invariant-I3-delete-note` | 1     | planned |
-| FR-110                | `it-open-with`             | 1     | planned |
-| FR-111                | `it-watcher-refresh`       | 1     | planned |
-| FR-112                | `it-board-roundtrip`       | 1     | planned |
-| FR-113                | `it-placement-schema`      | 1     | planned |
-| (all later-stage FRs) | per PRD §5 test-ref        | 2-5   | planned |
+Status values: `unit` = automated suite covers it; `live` = exercised in the
+running WebView2 app via real CDP input and confirmed on disk; `planned` =
+no coverage yet.
+
+| FR                    | test                       | stage | status        |
+| --------------------- | -------------------------- | ----- | ------------- |
+| FR-101                | `e2e-open-workspace`       | 1     | live          |
+| FR-104                | `it-md-node-edit`          | 1     | live          |
+| FR-105                | `it-ink-sidecar`           | 1     | unit+live     |
+| FR-106                | `it-ink-erase`             | 1     | unit+live     |
+| FR-107                | `invariant-I1-draw-edge`   | 1     | unit+live     |
+| FR-108                | `invariant-I2-erase-edge`  | 1     | unit+live     |
+| FR-109                | `invariant-I3-delete-note` | 1     | unit+live     |
+| FR-110                | `it-open-with`             | 1     | live          |
+| FR-111                | `it-watcher-refresh`       | 1     | live          |
+| FR-112                | `it-board-roundtrip`       | 1     | unit+live     |
+| FR-113                | `it-placement-schema`      | 1     | unit+live     |
+| FR-202                | `e2e-box-panel`            | 2     | live-partial¹ |
+| FR-204                | `it-edge-label`            | 2     | live          |
+| FR-205                | `it-jump-link`             | 2     | live          |
+| (all later-stage FRs) | per PRD §5 test-ref        | 2-5   | planned       |
+
+¹ FR-202 ships as an "unplaced" filter toggle over the sidebar file tree
+(placed files hidden while active) rather than a separate Box panel;
+drag-to-place reuses the existing FileTree→canvas path. The dedicated
+holding-area panel with its own drop target is still open.
+
+Live-verified 2026-10-13 (real CDP input, chaos workspace):
+ink draw writes `untitled-1.md.ink.svg` (`box-format: box.ink/1`,
+pressure-varying polygon, node gains `box-ink`); ink erase removes strokes
+and trashes the emptied sidecar (Recoverable by design, `box-ink` key
+dropped); external `.ink.svg` edit reloads the overlay via the watcher;
+`.md` file node dblclick → textarea → atomic write round-trips to the file;
+note `type` save denorms to board edge `label` and renders on the arrow;
+note-panel from/to jump fits the camera on the endpoint node + selects it;
+unplaced filter hides placed files (c50.txt, untitled-1.md) and keeps
+unplaced ones (untitled.md, c59.txt). Every node now persists
+`box-placement:{2d:{x,y,w,h},3d:null}` equal to spec coords.
+
+Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
+not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
+`dblclick` MouseEvent instead (the React handler itself is verified);
+ink-mode pointerdown consumes the gesture on file nodes, so a dblclick in
+draw mode produces tap-dot strokes, not the editor; release and dev
+binaries share the WebView2 user-data dir, so launching the release build
+while `tauri dev` runs fails with 0x8007139F - kill the dev instance first.
 
 The matrix is regenerated on each FR/test change - a CI lint step checks
 every Stage-appropriate FR has a test-ref that exists.

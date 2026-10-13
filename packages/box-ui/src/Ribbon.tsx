@@ -8,6 +8,10 @@ import { Icon } from "./icons.js";
 export function Ribbon(props: {
   hasWorkspace: boolean;
   sidebarOpen: boolean;
+  /** A board is open - ink tools apply to its file nodes. */
+  boardOpen?: boolean;
+  inkMode?: "off" | "draw" | "erase";
+  onInkMode?: (mode: "off" | "draw" | "erase") => void;
   onOpenWorkspace?: () => void;
   onRescan?: () => void;
   onNewBoard?: () => void;
@@ -39,6 +43,43 @@ export function Ribbon(props: {
             <Icon name="filePlus" size={18} />
           </button>
           <div className="ribbon-gap" />
+          {props.boardOpen && (
+            <>
+              <button
+                className={
+                  "ribbon-btn" +
+                  (props.inkMode === "draw" ? " ribbon-active" : "")
+                }
+                title={
+                  props.inkMode === "draw"
+                    ? "Ink: drawing (click to stop)"
+                    : "Draw ink over objects"
+                }
+                onClick={() =>
+                  props.onInkMode?.(props.inkMode === "draw" ? "off" : "draw")
+                }
+              >
+                <Icon name="pen" size={18} />
+              </button>
+              <button
+                className={
+                  "ribbon-btn" +
+                  (props.inkMode === "erase" ? " ribbon-active" : "")
+                }
+                title={
+                  props.inkMode === "erase"
+                    ? "Ink: erasing (click to stop)"
+                    : "Erase ink strokes"
+                }
+                onClick={() =>
+                  props.onInkMode?.(props.inkMode === "erase" ? "off" : "erase")
+                }
+              >
+                <Icon name="eraser" size={18} />
+              </button>
+              <div className="ribbon-gap" />
+            </>
+          )}
           <button
             className={
               "ribbon-btn" + (props.sidebarOpen ? " ribbon-active" : "")

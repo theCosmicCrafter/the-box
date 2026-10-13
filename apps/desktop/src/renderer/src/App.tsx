@@ -7,6 +7,7 @@
 import type {
   CanvasNode,
   Delta,
+  InkStroke,
   LinkNote,
   ProblemItem,
   Side,
@@ -24,11 +25,19 @@ import {
   missingScaffoldFiles,
   newNodeId,
   parseBoard,
+  parseInkSvg,
   parseLinkNote,
   serializeBoard,
+  serializeInkSvg,
   serializeLinkNote,
 } from "@box/core";
-import type { Camera, MenuItem, MenuSpec, WorkspaceFile } from "@box/ui";
+import type {
+  Camera,
+  InkPoint,
+  MenuItem,
+  MenuSpec,
+  WorkspaceFile,
+} from "@box/ui";
 import {
   BoardView,
   ContextMenu,
@@ -37,8 +46,11 @@ import {
   Icon,
   ImageInspector,
   NotePanel,
+  pathToPolygon,
+  pointInPolygon,
   Ribbon,
   screenToWorld,
+  strokeToPath,
   useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -179,6 +191,23 @@ export function App() {
   const [editingNode, setEditingNode] = useState<string | null>(null);
   // Image inspector (PureRef/Eagle): the file path currently inspected.
   const [inspectPath, setInspectPath] = useState<string | null>(null);
+  // Ink: "off" | "draw" | "erase" board mode + parsed strokes per node id.
+  const [inkMode, setInkMode] = useState<"off" | "draw" | "erase">("off");
+  const [inkMap, setInkMap] = useState<Map<string, InkStroke[]>>(new Map());
+  // FR-104: text-kind file node being edited in place.
+  const [fileEdit, setFileEdit] = useState<{
+    nodeId: string;
+    file: string;
+    text: string;
+  } | null>(null);
+  // FR-205: camera-jump request (nonce re-fires when the same node is
+  // jumped to twice in a row).
+  const [focusNode, setFocusNode] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
+  // FR-202: sidebar "unplaced only" filter.
+  const [unplacedOnly, setUnplacedOnly] = useState(false);
   const newBoardInput = useRef<HTMLInputElement>(null);
   // Canvas context menu + the camera/viewport handles OS file drops need
   // to convert window coords into world space.
@@ -393,6 +422,145 @@ export function App() {
     // fileTexts accumulated; targets derived from board nodes
   }, [board?.nodes, workspaceRoot]);
 
+  // Ink sidecars: re-read every `box-ink` target so external edits to an
+  // .ink.svg refresh the overlay (the watcher re-fires this via deps).
+  const reloadInk = async () => {
+    const b = useBoxStore.getState().board;
+    if (!workspaceRoot || !window.box || !b) return;
+    const next = new Map<string, InkStroke[]>();
+    for (const n of b.nodes) {
+      if (n.type !== "file") continue;
+      const rel = n["box-ink"];
+      if (typeof rel !== "string") continue;
+      const t = await window.box.readFile(workspaceRoot, rel);
+      if (t === null) continue;
+      const { value } = parseInkSvg(t, rel);
+      if (value) next.set(n.id, value.strokes);
+    }
+    setInkMap(next);
+  };
+  useEffect(() => {
+    void reloadInk();
+  }, [board?.nodes, workspaceRoot]);
+
+  // FR-105: a finished stroke appends to the node's sidecar; the source
+  // file itself is never touched.
+  const inkStroke = async (nodeId: string, pts: InkPoint[]) => {
+    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
+    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
+    const rel =
+      typeof n["box-ink"] === "string" ? n["box-ink"] : `${n.file}.ink.svg`;
+    const d = strokeToPath(pts);
+    if (!d) return;
+    const strokes = [
+      ...(inkMap.get(nodeId) ?? []),
+      { d, stroke: "#e8b931", "stroke-width": 10 },
+    ];
+    const r = await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeInkSvg({ strokes }),
+    );
+    if (!r.ok) {
+      useBoxStore
+        .getState()
+        .setProblems([`ink save failed: ${r.error ?? rel}`]);
+      return;
+    }
+    if (n["box-ink"] !== rel) updateNode(nodeId, { "box-ink": rel });
+    setInkMap(new Map(inkMap).set(nodeId, strokes));
+    await saveBoard();
+  };
+
+  // FR-106: erase removes whole strokes hit by the pointer (a small ring
+  // of sample points makes the target forgiving). Empty sidecars are
+  // trashed, not left as zero-byte litter.
+  const inkErase = async (nodeId: string, lx: number, ly: number) => {
+    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
+    const strokes = inkMap.get(nodeId);
+    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
+    const rel = n["box-ink"];
+    if (typeof rel !== "string" || !strokes || strokes.length === 0) return;
+    const samples: Array<[number, number]> = [
+      [lx, ly],
+      [lx + 5, ly],
+      [lx - 5, ly],
+      [lx, ly + 5],
+      [lx, ly - 5],
+    ];
+    const hit = (d: string) => {
+      const poly = pathToPolygon(d);
+      if (poly) return samples.some(([x, y]) => pointInPolygon(x, y, poly));
+      // Non-polygon `d` (hand-written or older sidecars): DOM hit-test
+      // in the path's own user units, same space lx/ly are in.
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      el.setAttribute("d", d);
+      const pt = new DOMPoint(0, 0);
+      return samples.some(([x, y]) => {
+        pt.x = x;
+        pt.y = y;
+        return el.isPointInFill(pt);
+      });
+    };
+    const kept = strokes.filter((s) => !hit(s.d));
+    if (kept.length === strokes.length) return;
+    if (kept.length === 0) {
+      await window.box.trashFile(workspaceRoot, rel);
+      updateNode(nodeId, { "box-ink": undefined });
+      const m = new Map(inkMap);
+      m.delete(nodeId);
+      setInkMap(m);
+      await saveBoard();
+      return;
+    }
+    const r = await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeInkSvg({ strokes: kept }),
+    );
+    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, kept));
+  };
+
+  // FR-104: in-place editing for text-kind file nodes - read the file,
+  // edit, write back atomically. Round-trips through the same path the
+  // excerpt loader uses so the preview refreshes.
+  const startFileEdit = async (node: CanvasNode) => {
+    if (!workspaceRoot || !window.box || node.type !== "file") return;
+    const t = await window.box.readFile(workspaceRoot, node.file);
+    if (t === null) {
+      useBoxStore.getState().setProblems([`cannot read ${node.file}`]);
+      return;
+    }
+    setFileEdit({ nodeId: node.id, file: node.file, text: t });
+  };
+  const commitFileEdit = async (nodeId: string, text: string) => {
+    const fe = fileEdit;
+    setFileEdit(null);
+    if (!fe || fe.nodeId !== nodeId || !workspaceRoot || !window.box) return;
+    if (text === fe.text) return;
+    const r = await window.box.writeFileAtomic(workspaceRoot, fe.file, text);
+    if (!r.ok) {
+      useBoxStore.getState().setProblems([`save failed: ${fe.file}`]);
+      return;
+    }
+    setFileTexts(new Map(fileTexts).set(fe.file, text.slice(0, 400)));
+  };
+
+  // FR-205: NotePanel from/to jump -> board camera centers the endpoint.
+  const jumpToNode = (id: string) => setFocusNode({ id, nonce: Date.now() });
+
+  // FR-202: the sidebar "unplaced" filter needs the set of files already
+  // on the open board.
+  const placedPaths = useMemo(
+    () =>
+      new Set(
+        (board?.nodes ?? [])
+          .filter((n) => n.type === "file")
+          .map((n) => (n.type === "file" ? n.file : "")),
+      ),
+    [board?.nodes],
+  );
+
   const saveBoard = async () => {
     const b = useBoxStore.getState().board;
     if (!workspaceRoot || !b || !boardPath || !window.box) return;
@@ -430,6 +598,10 @@ export function App() {
             openBoard(bp, value, problems);
           }
         })();
+      }
+      // External edit to an ink sidecar: refresh the overlays.
+      if (root && e.changedPaths.some((p) => p.endsWith(".ink.svg"))) {
+        void reloadInk();
       }
       // External edit to the open note: reload unless the user is editing.
       const openPath = edgeNote?.path;
@@ -909,6 +1081,17 @@ export function App() {
             fileTexts={fileTexts}
             fileSizes={fileSizes}
             editingNode={editingNode}
+            inkMode={inkMode}
+            inkByNodeId={inkMap}
+            fileEdit={
+              fileEdit ? { nodeId: fileEdit.nodeId, text: fileEdit.text } : null
+            }
+            focusNode={focusNode}
+            onInkStroke={(id, pts) => void inkStroke(id, pts)}
+            onInkErase={(id, x, y) => void inkErase(id, x, y)}
+            onEditFile={(n) => void startFileEdit(n)}
+            onFileCommit={(id, t) => void commitFileEdit(id, t)}
+            onFileEditCancel={() => setFileEdit(null)}
             resolveMedia={resolveMedia}
             onMove={moveNode}
             onResize={(id, w, h) => updateNode(id, { width: w, height: h })}
@@ -957,6 +1140,7 @@ export function App() {
               onDirtyChange={(d) => {
                 noteDirty.current = d;
               }}
+              onJumpNode={jumpToNode}
             />
           )}
         </div>
@@ -978,6 +1162,9 @@ export function App() {
           requestAnimationFrame(() => newBoardInput.current?.focus());
         }}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        boardOpen={board !== null}
+        inkMode={inkMode}
+        onInkMode={setInkMode}
       />
       {sidebarOpen && (
         <aside className="sidebar">
@@ -1006,10 +1193,21 @@ export function App() {
                   <Icon name="filePlus" size={14} />
                 </button>
               </div>
+              <button
+                className={
+                  unplacedOnly ? "sidebar-filter active" : "sidebar-filter"
+                }
+                onClick={() => setUnplacedOnly((v) => !v)}
+                title="Show only files not placed on the open board"
+              >
+                <Icon name="box" size={14} /> unplaced
+              </button>
               <FileTree
                 files={files}
                 activePath={boardPath ?? undefined}
                 onOpen={(p) => void loadBoardFile(p)}
+                unplacedOnly={unplacedOnly}
+                placedPaths={placedPaths}
               />
               {scaffoldOffered && (
                 <div className="sidebar-scaffold">

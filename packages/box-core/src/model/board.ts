@@ -7,10 +7,16 @@
 // yields {board: null, problems}, never throws. Unknown keys ride along via
 // index signatures and are preserved verbatim on rewrite.
 
-import type { Board, CanvasEdge, CanvasNode, ProblemItem } from "./types.js";
-import { BOARD_FORMAT } from "./types.js";
-import { isNodeId, isEdgeId } from "./ids.js";
+import { isEdgeId, isNodeId } from "./ids.js";
 import { isPathRel } from "./paths.js";
+import type {
+  Board,
+  CanvasEdge,
+  CanvasNode,
+  Placement,
+  ProblemItem,
+} from "./types.js";
+import { BOARD_FORMAT } from "./types.js";
 
 const NODE_TYPES = new Set(["text", "file", "link", "group"]);
 const SIDES = new Set(["top", "right", "bottom", "left"]);
@@ -93,6 +99,30 @@ function nodeProblems(
         path,
         detail: `${at}.box-ink invalid: ${String(ink)}`,
       });
+    }
+  }
+  const placement = n["box-placement"];
+  if (placement !== undefined && !isObj(placement)) {
+    problems.push({
+      kind: "malformed-board",
+      path,
+      detail: `${at}.box-placement not an object`,
+    });
+  } else if (isObj(placement)) {
+    const d = placement["2d"];
+    if (d !== undefined && !isObj(d)) {
+      problems.push({
+        kind: "malformed-board",
+        path,
+        detail: `${at}.box-placement.2d not an object`,
+      });
+    } else if (isObj(d)) {
+      // DATA-MODEL §2.6 canonical rule: readers prefer box-placement over
+      // the spec x/y/width/height mirrors.
+      if (isInt(d["x"]) && Math.abs(d["x"]) <= MAX_COORD) n["x"] = d["x"];
+      if (isInt(d["y"]) && Math.abs(d["y"]) <= MAX_COORD) n["y"] = d["y"];
+      if (isInt(d["w"]) && d["w"] >= 1 && d["w"] <= 65535) n["width"] = d["w"];
+      if (isInt(d["h"]) && d["h"] >= 1 && d["h"] <= 65535) n["height"] = d["h"];
     }
   }
   return problems;
@@ -252,6 +282,39 @@ export function parseBoard(json: string, path = "<board>"): ParseResult<Board> {
 }
 
 /**
+ * DATA-MODEL §2.6: writers emit spec x/y/width/height AND box-placement.2d
+ * kept equal. Existing placement keys (incl. a set `z` or any `3d` shape)
+ * ride along; unknown keys preserved for forward tolerance.
+ */
+function withPlacement(n: CanvasNode): CanvasNode {
+  const existing: Record<string, unknown> = isObj(n["box-placement"])
+    ? n["box-placement"]
+    : {};
+  const prev2d: Record<string, unknown> = isObj(existing["2d"])
+    ? existing["2d"]
+    : {};
+  const z = isInt(prev2d["z"]) ? { z: prev2d["z"] } : {};
+  // Preserve a previously-set 3d record only when it has the required
+  // numeric x/y/z; anything malformed collapses to null per Placement.
+  const p3 = existing["3d"];
+  const prev3d: Placement["3d"] =
+    isObj(p3) &&
+    typeof p3["x"] === "number" &&
+    typeof p3["y"] === "number" &&
+    typeof p3["z"] === "number"
+      ? (p3 as Placement["3d"])
+      : null;
+  return {
+    ...n,
+    "box-placement": {
+      ...existing,
+      "2d": { ...prev2d, x: n.x, y: n.y, w: n.width, h: n.height, ...z },
+      "3d": prev3d,
+    },
+  };
+}
+
+/**
  * Deterministic serializer: canonical field order for objects we write,
  * unknown keys preserved (they're already properties of the objects).
  */
@@ -260,7 +323,7 @@ export function serializeBoard(board: Board): string {
     "box-format": BOARD_FORMAT,
   };
   if (board["version"] !== undefined) out["version"] = board["version"];
-  out["nodes"] = board.nodes;
+  out["nodes"] = board.nodes.map(withPlacement);
   out["edges"] = board.edges;
   for (const k of Object.keys(board)) {
     if (

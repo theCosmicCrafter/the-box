@@ -13,6 +13,8 @@ export interface NotePanelProps {
   onSave: (next: LinkNote) => void;
   onClose: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Jump the canvas camera to an endpoint node (FR-205). */
+  onJumpNode?: (nodeId: string) => void;
 }
 
 export function NotePanel({
@@ -21,6 +23,7 @@ export function NotePanel({
   onSave,
   onClose,
   onDirtyChange,
+  onJumpNode,
 }: NotePanelProps) {
   const [body, setBody] = useState(note.body);
   const [type, setType] = useState(
@@ -65,11 +68,35 @@ export function NotePanel({
         </dd>
         <dt>from</dt>
         <dd>
-          <code>{note.frontmatter["from-file"] ?? note.frontmatter.from}</code>
+          {onJumpNode ? (
+            <button
+              className="note-jump"
+              title="Jump to source object"
+              onClick={() => onJumpNode(note.frontmatter.from)}
+            >
+              <code>
+                {note.frontmatter["from-file"] ?? note.frontmatter.from}
+              </code>
+            </button>
+          ) : (
+            <code>
+              {note.frontmatter["from-file"] ?? note.frontmatter.from}
+            </code>
+          )}
         </dd>
         <dt>to</dt>
         <dd>
-          <code>{note.frontmatter["to-file"] ?? note.frontmatter.to}</code>
+          {onJumpNode ? (
+            <button
+              className="note-jump"
+              title="Jump to target object"
+              onClick={() => onJumpNode(note.frontmatter.to)}
+            >
+              <code>{note.frontmatter["to-file"] ?? note.frontmatter.to}</code>
+            </button>
+          ) : (
+            <code>{note.frontmatter["to-file"] ?? note.frontmatter.to}</code>
+          )}
         </dd>
         <dt>created</dt>
         <dd>{note.frontmatter.created}</dd>

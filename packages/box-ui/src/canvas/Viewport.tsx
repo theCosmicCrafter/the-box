@@ -24,7 +24,7 @@ export interface ViewportProps {
     ((wx: number, wy: number, cx: number, cy: number) => void) | undefined;
   children: ReactNode;
   viewportRef?: RefObject<HTMLDivElement | null>;
-  className?: string;
+  className?: string | undefined;
 }
 
 export function Viewport(props: ViewportProps) {

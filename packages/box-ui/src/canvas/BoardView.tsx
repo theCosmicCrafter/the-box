@@ -5,14 +5,16 @@
 // and the edge-draft state machine (handle drag -> live preview ->
 // drop on target -> onCreateEdge with the sides actually used).
 
-import type { Board, CanvasNode, Side } from "@box/core";
+import type { Board, CanvasNode, InkStroke, Side } from "@box/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DraftEdge } from "./EdgeLayer.js";
-import { EdgeLayer, anchor } from "./EdgeLayer.js";
-import { NodeView } from "./NodeView.js";
-import { Viewport } from "./Viewport.js";
 import type { Camera } from "./camera.js";
 import { DEFAULT_CAMERA, zoomToFit } from "./camera.js";
+import type { DraftEdge } from "./EdgeLayer.js";
+import { EdgeLayer, anchor } from "./EdgeLayer.js";
+import type { InkPoint } from "./ink.js";
+import { strokeToPath } from "./ink.js";
+import { NodeView } from "./NodeView.js";
+import { Viewport } from "./Viewport.js";
 
 export interface BoardViewProps {
   board: Board;
@@ -24,11 +26,26 @@ export interface BoardViewProps {
   fileSizes?: Map<string, number> | undefined;
   /** Node currently in text-edit mode (set by platform on create). */
   editingNode?: string | null | undefined;
+  /** File node in content-edit mode + its full current text (FR-104). */
+  fileEdit?: { nodeId: string; text: string } | null | undefined;
+  /** Ink mode: draw captures strokes on file nodes, erase removes them. */
+  inkMode?: "off" | "draw" | "erase" | undefined;
+  /** Parsed .ink.svg strokes per node id (platform loads sidecars). */
+  inkByNodeId?: Map<string, InkStroke[]> | undefined;
   resolveMedia?: ((rel: string) => string) | undefined;
   onMove?: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
   onCommit?: () => void;
   onTextCommit?: (id: string, text: string) => void;
+  onFileCommit?: (id: string, text: string) => void;
+  onFileEditCancel?: (id: string) => void;
+  onEditFile?: ((node: CanvasNode) => void) | undefined;
+  /** Finished ink stroke: node-local points with pressure (FR-105). */
+  onInkStroke?: (nodeId: string, points: InkPoint[]) => void;
+  /** Eraser pass over node-local point (FR-106). */
+  onInkErase?: (nodeId: string, lx: number, ly: number) => void;
+  /** Imperative focus request: camera fits this node when nonce changes. */
+  focusNode?: { id: string; nonce: number } | null | undefined;
   onDeleteNode?: (id: string) => void;
   onCreateEdge?: (
     fromNodeId: string,
@@ -125,6 +142,28 @@ export function BoardView(props: BoardViewProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [inkDraft, setInkDraft] = useState<{
+    nodeId: string;
+    points: InkPoint[];
+  } | null>(null);
+
+  // Jump-to-object: platform sets {id, nonce}; camera fits the node once
+  // per request (FR-205).
+  useEffect(() => {
+    if (!props.focusNode) return;
+    const n = props.board.nodes.find((x) => x.id === props.focusNode?.id);
+    const el = vpRef.current;
+    if (!n || !el) return;
+    const r = el.getBoundingClientRect();
+    setCam(
+      zoomToFit(
+        { x: n.x - 80, y: n.y - 80, w: n.width + 160, h: n.height + 160 },
+        r.width,
+        r.height,
+      ),
+    );
+    setSelected(n.id);
+  }, [props.focusNode?.nonce]);
   const brokenNodes = props.brokenNodes ?? useMemo(() => new Set<string>(), []);
   const brokenEdges = useMemo(() => {
     if (props.brokenEdges) return props.brokenEdges;
@@ -197,6 +236,13 @@ export function BoardView(props: BoardViewProps) {
     <Viewport
       camera={cam}
       onCameraChange={setCam}
+      className={
+        props.inkMode === "draw"
+          ? "ink-draw"
+          : props.inkMode === "erase"
+            ? "ink-erase"
+            : undefined
+      }
       onBackgroundClick={() => {
         setSelected(null);
         selectEdge(null);
@@ -233,11 +279,41 @@ export function BoardView(props: BoardViewProps) {
           fileSize={
             n.type === "file" ? props.fileSizes?.get(n.file) : undefined
           }
-          editing={props.editingNode === n.id}
+          editing={
+            props.editingNode === n.id || props.fileEdit?.nodeId === n.id
+          }
+          fileEditText={
+            props.fileEdit?.nodeId === n.id ? props.fileEdit.text : undefined
+          }
+          ink={props.inkByNodeId?.get(n.id)}
+          inkMode={props.inkMode}
           onMove={props.onMove ?? (() => {})}
           onResize={props.onResize ?? (() => {})}
           onCommit={props.onCommit ?? (() => {})}
           onTextCommit={props.onTextCommit ?? (() => {})}
+          onFileCommit={props.onFileCommit}
+          onFileEditCancel={props.onFileEditCancel}
+          onEditFile={props.onEditFile}
+          onInkStart={(id, lx, ly, p) =>
+            setInkDraft({ nodeId: id, points: [{ x: lx, y: ly, p }] })
+          }
+          onInkMove={(id, lx, ly, p) =>
+            setInkDraft((d) =>
+              d && d.nodeId === id
+                ? { ...d, points: [...d.points, { x: lx, y: ly, p }] }
+                : d,
+            )
+          }
+          onInkEnd={(id) => {
+            if (
+              inkDraft &&
+              inkDraft.nodeId === id &&
+              inkDraft.points.length > 0
+            )
+              props.onInkStroke?.(id, inkDraft.points);
+            setInkDraft(null);
+          }}
+          onInkErase={props.onInkErase}
           onInspect={props.onInspectNode}
           onOpenExternal={props.onOpenFile}
           onReveal={props.onRevealFile}
@@ -283,6 +359,29 @@ export function BoardView(props: BoardViewProps) {
           }}
         />
       ))}
+      {(() => {
+        if (!inkDraft) return null;
+        const n = props.board.nodes.find((x) => x.id === inkDraft.nodeId);
+        if (!n) return null;
+        return (
+          <svg
+            className="ink-draft"
+            style={{
+              position: "absolute",
+              left: n.x,
+              top: n.y,
+              width: n.width,
+              height: n.height,
+              overflow: "visible",
+              pointerEvents: "none",
+            }}
+            viewBox={`0 0 ${n.width} ${n.height}`}
+            preserveAspectRatio="none"
+          >
+            <path d={strokeToPath(inkDraft.points)} fill="#e8b931" />
+          </svg>
+        );
+      })()}
     </Viewport>
   );
 }

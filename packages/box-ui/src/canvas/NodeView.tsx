@@ -7,7 +7,7 @@
 // visibly broken (I-7). Side handles appear on hover/selected (tldraw
 // pattern): drag from one to start a connection draft.
 
-import type { CanvasNode, FileKind, Side } from "@box/core";
+import type { CanvasNode, FileKind, InkStroke, Side } from "@box/core";
 import { baseName, fileKind } from "@box/core";
 import { useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
@@ -49,11 +49,29 @@ export interface NodeViewProps {
   fileSize?: number | undefined;
   /** Text-node edit mode (controlled by the platform for new nodes). */
   editing?: boolean;
+  /** File-node content edit: full file text loaded by the platform. */
+  fileEditText?: string | undefined;
+  /** Ink sidecar strokes for this node (parsed by the platform). */
+  ink?: InkStroke[] | undefined;
+  /** Board ink mode - draw/erase reroute pointer gestures on file nodes. */
+  inkMode?: "off" | "draw" | "erase" | undefined;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
   onCommit: () => void;
   onTextCommit?: (id: string, text: string) => void;
+  /** File-content edit finished; text is the new file body (FR-104). */
+  onFileCommit?: ((id: string, text: string) => void) | undefined;
+  onFileEditCancel?: ((id: string) => void) | undefined;
+  /** Double-click a text-kind file node -> in-place content edit. */
+  onEditFile?: ((node: CanvasNode) => void) | undefined;
+  /** Ink session callbacks - points are node-local px (FR-105/106). */
+  onInkStart?:
+    ((nodeId: string, lx: number, ly: number, p: number) => void) | undefined;
+  onInkMove?:
+    ((nodeId: string, lx: number, ly: number, p: number) => void) | undefined;
+  onInkEnd?: ((nodeId: string) => void) | undefined;
+  onInkErase?: ((nodeId: string, lx: number, ly: number) => void) | undefined;
   onDraftStart?: (nodeId: string, side: Side) => void;
   onDraftMove?: (wx: number, wy: number) => void;
   onDraftEnd?: (wx: number, wy: number) => void;
@@ -394,6 +412,8 @@ export function NodeView(props: NodeViewProps) {
     sx: number;
     sy: number;
   } | null>(null);
+  const inking = useRef(false);
+  const erasing = useRef(false);
   const [selfEditing, setSelfEditing] = useState(false);
   const editing = selfEditing || props.editing === true;
   const [draftText, setDraftText] = useState(
@@ -412,12 +432,37 @@ export function NodeView(props: NodeViewProps) {
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || editing) return;
     e.stopPropagation(); // node drags must not become viewport pans
+    // Ink modes take over the gesture on file nodes (FR-105/106).
+    if (props.inkMode === "draw" && node.type === "file") {
+      const w = worldOf(e);
+      inking.current = true;
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      props.onInkStart?.(node.id, w.x - node.x, w.y - node.y, e.pressure);
+      return;
+    }
+    if (props.inkMode === "erase" && node.type === "file") {
+      const w = worldOf(e);
+      erasing.current = true;
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      props.onInkErase?.(node.id, w.x - node.x, w.y - node.y);
+      return;
+    }
     drag.current = { px: e.clientX, py: e.clientY, ox: node.x, oy: node.y };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     props.onSelect(node.id);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (inking.current) {
+      const w = worldOf(e);
+      props.onInkMove?.(node.id, w.x - node.x, w.y - node.y, e.pressure);
+      return;
+    }
+    if (erasing.current) {
+      const w = worldOf(e);
+      props.onInkErase?.(node.id, w.x - node.x, w.y - node.y);
+      return;
+    }
     if (!drag.current) return;
     const a = screenToWorld(camera, 0, 0);
     const b = screenToWorld(
@@ -433,6 +478,14 @@ export function NodeView(props: NodeViewProps) {
   };
 
   const onPointerUp = () => {
+    if (inking.current) {
+      inking.current = false;
+      props.onInkEnd?.(node.id);
+    }
+    if (erasing.current) {
+      erasing.current = false;
+      props.onInkEnd?.(node.id);
+    }
     if (drag.current) {
       drag.current = null;
       props.onCommit();
@@ -521,13 +574,18 @@ export function NodeView(props: NodeViewProps) {
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={() => (drag.current = null)}
+      onPointerCancel={() => {
+        drag.current = null;
+        inking.current = false;
+        erasing.current = false;
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (node.type === "text") setSelfEditing(true);
         else if (node.type === "file") {
           if (e.altKey) props.onReveal?.(node.file);
           else if (kind === "image") props.onInspect?.(node.id);
+          else if (kind === "text") props.onEditFile?.(node);
           else props.onOpenExternal?.(node.file);
         }
       }}
@@ -541,7 +599,25 @@ export function NodeView(props: NodeViewProps) {
         <span className="node-kind">{kind}</span>
       )}
       {props.broken && <span className="node-flag">missing</span>}
-      {node.type === "file" && kind !== null ? (
+      {node.type === "file" && props.editing && kind === "text" ? (
+        <textarea
+          className="node-edit"
+          autoFocus
+          defaultValue={props.fileEditText ?? ""}
+          onBlur={(e) => props.onFileCommit?.(node.id, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey))
+              props.onFileCommit?.(
+                node.id,
+                (e.target as HTMLTextAreaElement).value,
+              );
+            if (e.key === "Escape") props.onFileEditCancel?.(node.id);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerMove={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        />
+      ) : node.type === "file" && kind !== null ? (
         <FileBody
           node={node}
           kind={kind}
@@ -569,6 +645,24 @@ export function NodeView(props: NodeViewProps) {
       ) : (
         <div className="node-label">{label(node)}</div>
       )}
+      {node.type === "file" &&
+        props.ink !== undefined &&
+        props.ink.length > 0 && (
+          <svg
+            className="node-ink"
+            viewBox={`0 0 ${node.width} ${node.height}`}
+            preserveAspectRatio="none"
+            aria-hidden
+          >
+            {props.ink.map((s, i) => (
+              <path
+                key={i}
+                d={s.d}
+                fill={(s["stroke"] as string) ?? "#e8b931"}
+              />
+            ))}
+          </svg>
+        )}
       {SIDES.map((side) => (
         <div
           key={side}

@@ -3,6 +3,7 @@ export * from "./canvas/BoardView.js";
 export * from "./canvas/camera.js";
 export * from "./canvas/EdgeLayer.js";
 export * from "./canvas/ImageInspector.js";
+export * from "./canvas/ink.js";
 export * from "./canvas/NodeView.js";
 export * from "./canvas/Viewport.js";
 export * from "./ContextMenu.js";

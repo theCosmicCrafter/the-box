@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 // Board parser/serializer tests - DATA-MODEL §2 + formats gate.
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseBoard, serializeBoard } from "../src/model/board.js";
 
 const MINIMAL = {
@@ -102,9 +102,76 @@ describe("parseBoard", () => {
 
 describe("serializeBoard", () => {
   it("round-trips a parsed board byte-for-field", () => {
-    const r = parseBoard(JSON.stringify(MINIMAL));
-    const reparsed = parseBoard(serializeBoard(r.value!));
-    expect(reparsed.value?.nodes).toEqual(r.value?.nodes);
-    expect(reparsed.value?.edges).toEqual(r.value?.edges);
+    // Serialization adds box-placement (writers emit both coord forms), so
+    // the fixed point is the SECOND round: parse -> write -> parse -> write
+    // -> parse must be identical.
+    const r1 = parseBoard(
+      serializeBoard(parseBoard(JSON.stringify(MINIMAL)).value!),
+    );
+    const r2 = parseBoard(serializeBoard(r1.value!));
+    expect(r2.value?.nodes).toEqual(r1.value?.nodes);
+    expect(r2.value?.edges).toEqual(r1.value?.edges);
+  });
+});
+
+describe("box-placement (DATA-MODEL §2.6, FR-113)", () => {
+  it("serialize emits box-placement.2d equal to spec coords, 3d null", () => {
+    const out = JSON.parse(
+      serializeBoard(parseBoard(JSON.stringify(MINIMAL)).value!),
+    );
+    const p = out.nodes[0]["box-placement"];
+    expect(p["2d"]).toEqual({ x: 0, y: 0, w: 200, h: 150 });
+    expect(p["3d"]).toBeNull();
+  });
+
+  it("serialize tracks coords after a move and preserves z + 3d + unknown keys", () => {
+    const r = parseBoard(JSON.stringify(MINIMAL)).value!;
+    const n = r.nodes[0]!;
+    n.x = 55;
+    n.y = -10;
+    n["box-placement"] = {
+      "2d": { x: 0, y: 0, w: 200, h: 150, z: 3 },
+      "3d": { x: 1, y: 2, z: 3 },
+      "future-key": { keep: true },
+    };
+    const out = JSON.parse(serializeBoard(r));
+    const p = out.nodes[0]["box-placement"];
+    expect(p["2d"]).toEqual({ x: 55, y: -10, w: 200, h: 150, z: 3 });
+    expect(p["3d"]).toEqual({ x: 1, y: 2, z: 3 });
+    expect(p["future-key"]).toEqual({ keep: true });
+  });
+
+  it("parse prefers box-placement.2d over spec coords", () => {
+    const b = {
+      ...MINIMAL,
+      nodes: [
+        {
+          ...MINIMAL.nodes[0]!,
+          x: 1,
+          y: 1,
+          "box-placement": {
+            "2d": { x: 700, y: 800, w: 90, h: 60 },
+            "3d": null,
+          },
+        },
+      ],
+      edges: [],
+    };
+    const r = parseBoard(JSON.stringify(b));
+    const n = r.value!.nodes[0]!;
+    expect([n.x, n.y, n.width, n.height]).toEqual([700, 800, 90, 60]);
+  });
+
+  it("malformed placement reports a problem and leaves spec coords alone", () => {
+    const b = {
+      ...MINIMAL,
+      nodes: [{ ...MINIMAL.nodes[0]!, "box-placement": "oops" }],
+      edges: [],
+    };
+    const r = parseBoard(JSON.stringify(b));
+    expect(r.problems.some((p) => p.detail.includes("box-placement"))).toBe(
+      true,
+    );
+    expect(r.value!.nodes[0]!.x).toBe(0);
   });
 });
