@@ -12,9 +12,10 @@
 - TypeScript: ESM (`"type": "module"`), `NodeNext` resolution, `strict`.
   Import workspace packages by name (`@box/core`). Inside a package use
   relative imports with `.js` extensions.
-- Tests: Vitest in `tests/**/*.test.ts` per package. Unit tests never need
-  Electron, a GPU, Von, Ollama, or network. Anything needing Chrome or an
-  external app is an integration test and must skip cleanly with a logged
+- Tests: Vitest in `tests/**/*.test.ts` per package + `cargo test` in
+  `apps/desktop/src-tauri` (adversarial module included). Unit tests never
+  need a webview, a GPU, Von, Ollama, or network. Anything needing Chrome or
+  an external app is an integration test and must skip cleanly with a logged
   reason when the tool is missing.
 - Files UTF-8, LF endings. Plain human prose in docs and comments.
   **No em dashes** outside the `docs/plans/` exemption.
@@ -29,9 +30,11 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ apps/desktop           Electron 44 (Node 24.18.1 embedded)        │
-│  main:     watcher impl, atomic writes, openPath, trashItem, prefs │
-│  renderer: hosts box-ui; state via Zustand                         │
+│ apps/desktop           Tauri 2 (ADR-0006; system webview)          │
+│  Rust (src-tauri): scan, notify watcher, atomic writes, trash,     │
+│    opener, box:// protocol + Range, session file, bound_root       │
+│  renderer (vite):  hosts box-ui + box-core; state via Zustand;     │
+│    reconcile/WritePlan execution moved here from old Electron main │
 ├──────────────────────────────────────────────────────────────────┤
 │ packages/box-ui        React canvas + object renderers + ink       │
 ├──────────────────────────────────────────────────────────────────┤
@@ -52,12 +55,15 @@ interfaces. `box-mcp` calls `box-core` like any client.
 
 | fact                                                                                                                                                                                                                                                                                              | source                             |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| Electron 44.0.0 embeds Node **24.18.1** (44.7.0 → 24.21.0); `node:sqlite` flag-free since Node 22.13, RC since 24.15 → available in Electron main                                                                                                                                                 | releases.electronjs.org            |
+| Tauri **2.12.3** + wry 0.57 + WebView2 154 verified on this machine: `tauri dev` boots, `tauri build` produces NSIS 2.19 MiB + MSI 3.14 MiB installers; CDP via `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`                                                              | probe 2026-10-13                   |
+| Custom scheme on Windows resolves as `https://box.localhost/<path>` (WebView2 limitation); renderer emits per-platform URL shapes via `resolveMedia` + `?v=<mtime>` cache-bust                                                                                                                    | probe 2026-10-13, CDP fetch        |
+| `notify` crate watcher → 250ms debounce → `box:fs-dirty` event → renderer `sync.ts` full-scan reconcile: verified live, byte-exact convergence after 100-op fs storm (create/rename/delete/mkdir)                                                                                                 | probe 2026-10-13, CDP store diff   |
 | `fs.watch` on Windows: emits `rename`/`change` only; deletes and renames both arrive as `rename`; duplicate `change` events normal; atomic saves interleave temp+target events                                                                                                                    | probe R-2 output (DATA-MODEL §5.1) |
 | Obsidian tolerates **and preserves** unknown keys in `.canvas` by design: every node/edge carries `unknownData={}`, spread first on `getData()` then overridden by known keys (T-1, `obsidian.asar` app.js read 2026-10-12); plugin ecosystem corroborates                                        | `obsidian.asar` + `main.js`        |
 | Von wire API: `POST 127.0.0.1:8770/v1/systemone`, body `{state, questions:{<n>:{type:noul\|choice\|score, instructions, criteria}}}` → `{answers:{<n>:{noul:<0..1>}}}`; env override `TYPESAFE_API_URL`. **Daemon offline at probe time - live-response/latency probe is a pending runbook task** | `jev-mcp/server.py:20-89`          |
 | perfect-freehand 1.2.3 (MIT): `getStroke(points, StrokeOptions) -> Vec2[]` polygon outline; `simulatePressure` covers no-stylus input                                                                                                                                                             | `reference/perfect-freehand/src`   |
 | tldraw SDK requires a license key for production (key-enforced, watermark on hobby tier)                                                                                                                                                                                                          | tldraw.dev/community/license       |
+| WebKit media floor (Stage 5 macOS/iOS re-verify): VP8/VP9/AV1/HEVC/WebM present since Safari 18.4 audio rewrite; muted+inline autoplay allowed; residual quirk: PDF in `<iframe>` renders blank - use `<embed>` or pdf.js                                                                         | ADR-0006 evidence (T-15)           |
 
 ## 3. Package contracts
 
@@ -76,8 +82,9 @@ content; it never performs I/O itself.
 | `index/`     | `Index` over node:sqlite: `fileNodes`, `edgesByNote`, `noteByEdge`, `fts` tables; `rebuild(scan)`                                                                                                                                                         | schema is a cache; no queries required to be correct for truth                |
 | `decisions/` | `interface IDecisionClient`, `VonClient(url)`, `decide(question) → {pick, p, confidence}`, feature gates                                                                                                                                                  | fails silent-offline by design; never blocks sync paths                       |
 
-**Invariant:** `box-core` runs `node test/` headless. If a file in it imports
-`electron`, `fs`, `net`, or `http`, the build fails (lint rule).
+**Invariant:** `box-core` runs `vitest` headless. If a file in it imports
+`electron`, `@tauri-apps/*`, `fs`, `net`, or `http`, the build fails (lint
+rule).
 
 ### 3.2 `@box/ui` - the surface
 
@@ -93,34 +100,54 @@ content; it never performs I/O itself.
 | `editor/`        | CodeMirror 6 link-note editor (frontmatter-aware: required-key highlight, `box-edge` read-only)                                                                  |
 | `problem-items/` | reconcile warnings, malformed files, broken edges - a list, never silent                                                                                         |
 
-### 3.3 `apps/desktop` - the platform
+### 3.3 `apps/desktop` - the platform (Tauri 2)
 
-**Main process** adapts OS APIs to `box-core` interfaces:
+The platform is split across **Rust** (`src-tauri`, owns OS access) and the
+**renderer** (`src/renderer`, plain vite + React; owns `box-core` and all
+model logic). The reconcile loop that ran in Electron main now runs in the
+renderer (`sync.ts`) - `box-core` is pure TS and needs no port.
 
-| adapter     | implements        | backed by                                                    |
-| ----------- | ----------------- | ------------------------------------------------------------ |
-| `FsVault`   | `IVault`          | `fs/promises`, temp+rename atomic writes, `sha256` streaming |
-| `Watcher`   | event source      | `chokidar` 5 → `watch/classifyEvents`                        |
-| `Recycler`  | `IRecycler`       | `shell.trashItem`                                            |
-| `Opener`    | `IOpener`         | `shell.openPath` + per-type prefs from `.box/settings.json`  |
-| `Decisions` | `IDecisionClient` | `fetch` → Von `:8770` (offline → no-op)                      |
+**Rust layer** (`src-tauri/src/lib.rs`) adapts OS APIs to file services:
 
-**IPC contract** (renderer ↔ main; payloads are model types, never paths
-invented in renderer):
+| adapter        | backed by                                                                                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| workspace scan | `walkdir` recursive listing, `.box/tmp`, `node_modules`, `.git` elided                                                  |
+| watcher        | `notify` crate → 250ms debounce → emits `box:fs-dirty` on the window                                                    |
+| atomic writes  | temp-file + `fs::rename`                                                                                                |
+| recycler       | `trash` crate (Recycle Bin on Windows)                                                                                  |
+| opener         | `opener` crate (open in default app, reveal in Explorer)                                                                |
+| media protocol | `register_uri_scheme_protocol("box")` + `http_range`: 200/206/416, MIME via `mime_guess`+`infer`, 8 MiB-per-request cap |
+| session        | last-workspace file under `app_data_dir`                                                                                |
 
-| channel                   | direction | payload                     | returns / errors                          |
-| ------------------------- | --------- | --------------------------- | ----------------------------------------- |
-| `workspace.open`          | r→m       | `{root: PathRel}`           | `WorkspaceScan` / `ERR_WORKSPACE_INVALID` |
-| `board.get`               | r→m       | `{board: PathRel}`          | `Board`                                   |
-| `sync.createEdge`         | r→m       | `{board, fromNode, toNode}` | `{edgeId, notePath}` / `ERR_NODE_MISSING` |
-| `sync.deleteEdge`         | r→m       | `{edgeId}`                  | `ok` / `ERR_EDGE_MISSING`                 |
-| `note.read`, `note.write` | r→m       | `{path}`                    | `LinkNote` / `ERR_NOTE_MALFORMED`         |
-| `vault.delta`             | m→r       | `Delta[]`                   | push: refresh hints                       |
-| `problem.list`            | r→m       | -                           | `ProblemItem[]`                           |
-| `opener.with`             | r→m       | `{file, appId?}`            | `ok` / `ERR_NO_APP`                       |
+**Path discipline:** every command takes a workspace-rel path that must pass
+`resolve_inside` (parity-checked against `box-core` `isPathRel` in the
+adversarial suite). Mutating commands (`fs_write_atomic`, `fs_trash`,
+`fs_append_tombstone`) additionally bind to the **session root** set by
+`fs_open_workspace`/`fs_watch_workspace` - a caller cannot aim a write at a
+root the app never opened. `fs_append_tombstone` enforces the 16-hex edge-id
+contract.
 
-**Renderer:** React 19 + Zustand 5; mounts `box-ui`. No `fs` access; all
-state arrives via IPC payloads.
+**IPC contract** (renderer ↔ Rust; `invoke` returns `{ok:true,...}` or
+`{ok:false,error}` - the bridge wraps it):
+
+| `window.box` method  | Tauri command          | returns                              |
+| -------------------- | ---------------------- | ------------------------------------ |
+| `openWorkspace`      | `fs_open_workspace`    | `{root, files:[{path,size,mtime}]}`  |
+| `rescan`             | `fs_scan`              | same scan payload                    |
+| `lastWorkspace`      | `session_last_root`    | `{root}` or `{root:null}`            |
+| `watchWorkspace`     | `fs_watch_workspace`   | `{ok}` - begins `box:fs-dirty` push  |
+| `onWorkspaceChanged` | `listen(box:fs-dirty)` | event payload `{paths:[PathRel]}`    |
+| `readFile`           | `fs_read`              | UTF-8 lossy string (null only on IO) |
+| `writeFileAtomic`    | `fs_write_atomic`      | `{ok}`                               |
+| `trashFile`          | `fs_trash`             | `{ok}`                               |
+| `appendTombstone`    | `fs_append_tombstone`  | `{ok}`                               |
+| `openExternal`       | `fs_open_external`     | `{ok}` / `{ok:false,error}`          |
+| `revealFile`         | `fs_reveal`            | `{ok}` / `{ok:false,error}`          |
+
+**Renderer:** React 19 + Zustand 5; mounts `box-ui`. `bridge.ts` exposes
+`window.box` over `@tauri-apps/api` `invoke`/`event.listen`; `sync.ts` owns
+the watch→classify→reconcile→`WritePlan`→exec loop and pushes deltas into
+the store. No `fs` access; all state arrives via payloads.
 
 ### 3.4 `@box/mcp` (Stage 4)
 
@@ -134,39 +161,38 @@ Read-mostly MCP server exposing `board.read`, `board.list-objects`,
 ```mermaid
 sequenceDiagram
   participant U as User (arrow tool)
-  participant R as Renderer (box-ui)
-  participant M as Main (apps/desktop)
-  participant C as box-core/sync
+  participant R as Renderer (box-ui + box-core)
+  participant P as Rust platform (src-tauri)
   participant F as Filesystem
   U->>R: drag A→B, drop
-  R->>M: sync.createEdge{board, n1, n2}
-  M->>C: createEdge()
-  C->>M: WritePlan[write link-<id>.md, write board+edge]
-  M->>F: atomic write note
-  M->>F: atomic write board
-  M->>R: {edgeId, notePath}
+  R->>R: createEdge() → WritePlan[write link-<id>.md, write board+edge]
+  R->>P: invoke fs_write_atomic(note)
+  P->>F: temp+rename note
+  R->>P: invoke fs_write_atomic(board)
+  P->>F: temp+rename board
   R->>R: render edge, open note seeded
-  Note over C,F: crash after step 1 → orphan note → reconcile R-C adopts
+  Note over R,F: crash after step 1 → orphan note → reconcile R-C adopts
 ```
 
 ```mermaid
 sequenceDiagram
   participant E as External app (Krita)
-  participant W as Watcher (chokidar)
-  participant C as watch/classify+sync
-  participant R as Renderer
-  E->>W: save (atomic: tmp→rename)
-  W->>C: event burst {rename tmp, change tmp, rename target...}
-  C->>C: debounce 100ms quiet → classify = modified(target)
-  C->>R: vault.delta [modified photo.png]
-  R->>R: invalidate object, re-render (ink overlay preserved)
-  Note over W,C: self-writes suppressed via in-flight write set + hash echo
+  participant W as notify watcher (Rust)
+  participant R as Renderer (sync.ts)
+  participant F as Filesystem
+  E->>F: save (atomic: tmp→rename)
+  F->>W: event burst {rename tmp, change tmp, rename target...}
+  W->>W: 250ms debounce → emit box:fs-dirty{paths}
+  W->>R: event → rescan → classifyFileSet → reconcile → WritePlans → invoke
+  R->>R: push deltas to store → invalidate object, re-render
+  Note over W,R: board self-write echoes suppressed via serialized-content compare
 ```
 
 ## 5. Concurrency model
 
 - **Single writer:** all file mutations originate in `box-core` `WritePlan`s
-  executed serially by `apps/desktop`. No second writer exists in-process.
+  executed serially by the renderer through `window.box` (Rust executes the
+  steps; it never invents writes). No second writer exists in-process.
 - **External writers** are facts of life (that's the product). They arrive as
   watcher deltas; reconcile converges state - same rules for external and
   internal causes.

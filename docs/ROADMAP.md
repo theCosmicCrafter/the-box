@@ -10,7 +10,7 @@ not before. Pulling anything from the north-star lot forward requires an ADR.
 - [ ] Close OQ-1 (canvas superset) and OQ-4 (link-note scope) - ADR entries
 - [ ] npm workspaces scaffold: `apps/desktop`, `packages/box-core`, `packages/box-ui`
 - [ ] `box-core` skeleton: model types + `.box.canvas` parser/serializer (port from `obsidian-master-control-mcp/canvas.py`)
-- [ ] Electron shell opens a folder, lists files (no canvas yet)
+- [x] Tauri 2 shell opens a folder, lists files (ADR-0006; Electron replaced 2026-10-13)
 - [ ] CI: typecheck + lint + vitest green
 - [ ] Fixture workspace generator in `tools/`
 
@@ -80,7 +80,14 @@ suggestion UI never commits an unconfirmed inference (I-9 holds under AI).
 
 - [ ] FR-501..FR-503 (touch/pen pass + iPad path ADR, optional WASM brushes,
       shareable workspaces)
-- [ ] Package/release pipeline for a second machine
+- [ ] macOS WKWebView re-verification pass on all presenters (PDF via
+      `<embed>` or pdf.js, codec spot-checks, FontFace/WebGL parity) -
+      Christian's Mac is the host (ADR-0006)
+- [ ] iOS build on a macOS/Xcode host (`tauri ios build`); engine is
+      WKWebView under every framework, so the presenter matrix above is the
+      gate
+- [ ] Package/release pipeline for a second machine (NSIS/MSI already proven
+      at 2-3 MiB; dmg/notarization on the Mac)
 
 ## North Star (parked - schema-protected, not scoped)
 

@@ -100,6 +100,31 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
       }
     }
     for (const edge of res.value.edges) {
+      if (scan.tombstones.has(edge.id)) {
+        // I-2 completion: a tombstoned edge dies on the board too, in the
+        // same pass. Without this, R-D trashes the note while the edge
+        // survives, and R-A regenerates the stub - oscillation until
+        // MAX_PASSES whenever knownNotes memory is absent (fresh session).
+        const b = boardOf(path);
+        if (b !== null) {
+          const fixed: Board = {
+            ...b,
+            edges: b.edges.filter((e) => e.id !== edge.id),
+          };
+          boardsChanged.set(path, fixed);
+          steps.push({
+            op: "write-atomic",
+            path,
+            content: serializeBoard(fixed),
+          });
+        }
+        problems.push({
+          kind: "tombstone-complete",
+          path,
+          detail: `edge ${edge.id} removed; was tombstoned`,
+        });
+        continue;
+      }
       if (!nodeIds.has(edge.fromNode) || !nodeIds.has(edge.toNode)) {
         // R-F: edge renders broken, note preserved (I-7)
         brokenEdges.push(edge.id);

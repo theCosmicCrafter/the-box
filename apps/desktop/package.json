@@ -3,22 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
-    "start": "electron ."
+    "dev": "tauri dev",
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build": "npm run build:renderer && tauri build",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@box/core": "0.1.0",
     "@box/ui": "0.1.0",
+    "@tauri-apps/api": "2",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "chokidar": "5.0.0"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
-    "electron": "44.6.0",
-    "electron-vite": "5.0.0",
+    "@tauri-apps/cli": "2",
+    "@vitejs/plugin-react": "5",
     "vite": "7.3.7",
     "typescript": "5.9.3",
     "@types/react": "19.3.0",

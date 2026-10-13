@@ -39,6 +39,7 @@ import {
   useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { boxPlatform } from "./bridge.js";
 
 interface WorkspaceChanged {
   files: WorkspaceFile[];
@@ -159,11 +160,15 @@ export function App() {
   // Media URL through the box:// protocol (main validates inside root).
   // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
   // the URL changes, so <img>/<video> re-fetch instead of serving a stale
-  // Chromium cache entry.
+  // cache entry. Windows custom schemes serve at https://box.localhost
+  // (WebView2 limitation - ADR-0006); elsewhere real box://.
   const resolveMedia = (rel: string) => {
     const mtime = files.find((f) => f.path === rel)?.mtime;
     const v = mtime === undefined ? "" : `?v=${Math.floor(mtime)}`;
-    return `box://f/${encodeURIComponent(rel)}${v}`;
+    const enc = encodeURIComponent(rel);
+    return boxPlatform === "windows"
+      ? `https://box.localhost/f/${enc}${v}`
+      : `box://f/${enc}${v}`;
   };
 
   const open = async () => {

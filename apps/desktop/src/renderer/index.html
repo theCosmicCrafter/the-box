@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: box: blob:; media-src 'self' box: blob:; font-src 'self' box:; frame-src 'self' box:; worker-src 'self' blob:; connect-src 'self' box: blob:"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: box: https://box.localhost http://box.localhost blob:; media-src 'self' box: blob: https://box.localhost http://box.localhost; font-src 'self' box: https://box.localhost http://box.localhost; frame-src 'self' box: https://box.localhost http://box.localhost; worker-src 'self' blob:; connect-src 'self' box: blob: https://box.localhost http://box.localhost ipc: http://ipc.localhost"
     />
     <title>The Box</title>
   </head>

@@ -101,7 +101,10 @@ export function parseLinkNote(
     value: {
       path,
       frontmatter: fm as LinkNoteFrontmatter,
-      body: parsed.content.replace(/^\r?\n/, ""),
+      // Strip the serializer's framing newlines exactly: one after the
+      // fence, one before EOF. Both are write-side artifacts - without the
+      // trailing strip every save-load cycle grows bodies by a newline.
+      body: parsed.content.replace(/^\r?\n/, "").replace(/\n$/, ""),
     },
     problems,
   };

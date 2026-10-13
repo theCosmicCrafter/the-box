@@ -315,10 +315,17 @@ export function ZipPreview(props: { url: string; path: string }) {
     const { unzipSync } = await import("fflate");
     const buf = new Uint8Array(await fetchBytes(props.url));
     const thumbNames: string[] = [];
-    // unzipSync with filter: only a thumbnail candidate pays decompression
+    // unzipSync with filter: only a thumbnail candidate pays decompression.
+    // The declared-size cap turns a crafted archive naming its zip bomb
+    // "mergedimage.png" into a listing, not an OOM - unzipSync allocates
+    // output up to the CD-declared size, so refuse anything absurd.
+    const MAX_THUMB = 64 * 1024 * 1024;
     const files = unzipSync(buf, {
       filter: (f) => {
-        if (ZIP_THUMB_NAMES.test(f.name)) {
+        if (
+          ZIP_THUMB_NAMES.test(f.name) &&
+          (f.originalSize === undefined || f.originalSize <= MAX_THUMB)
+        ) {
           thumbNames.push(f.name);
           return true;
         }

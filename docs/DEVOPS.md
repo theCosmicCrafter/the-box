@@ -9,19 +9,19 @@
 
 | tool                              | pin                                                                                          | notes                                                                                              |
 | --------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Node                              | 24.x (Electron embeds 24.18.1; dev runtime tracks it)                                        |                                                                                                    |
+| Node                              | 24.x (dev runtime; the webview is the app runtime, not Node)                                 |                                                                                                    |
 | npm                               | bundled                                                                                      | workspaces only - never yarn/pnpm                                                                  |
 | TypeScript                        | 5.x strict (NodeNext, ESM)                                                                   | `tsconfig.base.json` at root; TS 7 exists but pin 5.x until ecosystem settles - revisit next cycle |
-| Electron                          | **44.6.0**                                                                                   | 44.7.0 released 2026-10-08 - inside the 7-day freshness rule; bump next cycle                      |
+| Rust                              | stable MSVC (1.99 verified)                                                                  | platform layer language; VS Build Tools 2022 required on Windows                                   |
+| Tauri                             | **2.12.x** (`tauri` 2.12.3, `@tauri-apps/cli` + `@tauri-apps/api` 2.x)                       | ADR-0006; WebView2 runtime 154.x verified; macOS uses WKWebView                                    |
 | React / react-dom                 | 19.3.0                                                                                       |                                                                                                    |
 | Vitest                            | 5.0.4                                                                                        |                                                                                                    |
 | Zustand                           | 5.0.15                                                                                       |                                                                                                    |
-| chokidar                          | 5.0.0                                                                                        | survey verdict (zero native deps); @parcel/watcher is the documented fallback                      |
-| node:sqlite                       | built into Electron's Node 24                                                                | **probe at scaffold** that it exists in Electron main; fallback better-sqlite3                     |
+| node:sqlite                       | Node 24 built-in (index tool, not the app runtime)                                           | **probe at scaffold**; fallback better-sqlite3                                                     |
 | CodeMirror                        | @codemirror/state 6.7.6, view 6.43.14, lang-markdown 6.5.2, language 6.13.1, commands 6.11.1 | link-note editor only                                                                              |
 | gray-matter                       | 4.0.3                                                                                        | frontmatter                                                                                        |
 | perfect-freehand                  | 1.2.3 (MIT)                                                                                  | ink                                                                                                |
-| electron-builder                  | 26.15.3                                                                                      | Stage 5 packaging                                                                                  |
+| tauri bundler                     | in-tree (`tauri build` → NSIS/MSI on Windows)                                                | Stage 5 packaging; verified producing 2-3 MiB installers                                           |
 | Python (sidecars only, if needed) | 3.12 via project venv                                                                        | `PYTHONUTF8=1` every launch; never global pip                                                      |
 
 Dependency policy: exact pins, no ranges, new deps ≥7 days old. Check
@@ -41,15 +41,16 @@ Dependency policy: exact pins, no ranges, new deps ≥7 days old. Check
 
 ## 3. Quality gates
 
-| gate             | command                                                                                                                                                    | blocks merge        |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| typecheck        | `npm run typecheck` (`tsc -b` workspace refs)                                                                                                              | yes                 |
-| lint             | `npm run lint` (ESLint flat)                                                                                                                               | yes                 |
-| unit tests       | `npm test` (Vitest)                                                                                                                                        | yes                 |
-| invariant suite  | `npm run test:invariants` - tests named `invariant-I<N>-<slug>`, 1:1 with DATA-MODEL §invariants                                                           | yes                 |
-| format check     | `npm run test:formats` - fixture files parse/serialize/round-trip                                                                                          | yes                 |
-| e2e              | `npm run test:e2e` - headless Electron selftest **writes result file** (stdout never pipes reliably on Windows - verified house rule from ResonanceStudio) | yes, when it exists |
-| FOSS (post-code) | `reuse lint` (SPDX coverage), license-compat vs THIRD_PARTY_NOTICES, DCO check on PRs (post-public), community-health file presence                        | yes when activated  |
+| gate             | command                                                                                                                                  | blocks merge       |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| typecheck        | `npm run typecheck` (`tsc -b` workspace refs)                                                                                            | yes                |
+| lint             | `npm run lint` (ESLint flat)                                                                                                             | yes                |
+| unit tests       | `npm test` (Vitest)                                                                                                                      | yes                |
+| rust gates       | `cargo check` + `cargo clippy` + `cargo fmt --check` + `cargo test` in `apps/desktop/src-tauri` (incl. `adversarial` module)             | yes                |
+| invariant suite  | `npm run test:invariants` - tests named `invariant-I<N>-<slug>`, 1:1 with DATA-MODEL §invariants                                         | yes                |
+| format check     | `npm run test:formats` - fixture files parse/serialize/round-trip; Prettier `format:check` excludes `src-tauri/target` + `src-tauri/gen` | yes                |
+| live-app CDP     | `tauri dev` + `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` + `tools/cdp-eval.mjs` probes (TEST-PLAN §10)         | manual before ship |
+| FOSS (post-code) | `reuse lint` (SPDX coverage), license-compat vs THIRD_PARTY_NOTICES, DCO check on PRs (post-public), community-health file presence      | yes when activated |
 
 ## 4. CI contract (write `.github/workflows/ci.yml` at Stage 0)
 
@@ -62,14 +63,18 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: clippy, rustfmt }
       - run: npm ci
       - run: npm run typecheck && npm run lint && npm test
       - run: npm run test:invariants && npm run test:formats
-      # - run: npm run test:e2e          # enable Stage 2
+      - run: cargo check && cargo clippy && cargo test
+        working-directory: apps/desktop/src-tauri
       # - run: reuse lint                # enable when code exists
 ```
 
-Later job: `package` - electron-builder NSIS on `v*` tag push.
+Later job: `package` - `tauri build` (NSIS + MSI on Windows, dmg on macOS,
+iOS via Xcode on a macOS runner) on `v*` tag push.
 
 ## 5. Provenance (FOSS hygiene)
 

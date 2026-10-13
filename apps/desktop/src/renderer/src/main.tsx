@@ -3,6 +3,7 @@
 import { useBoxStore } from "@box/ui";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import { installBoxBridge } from "./bridge.js";
 import "./styles.css";
 
 // Dev-only: expose the store so CDP tooling can drive/inspect the page.
@@ -13,5 +14,7 @@ if (dev) {
 
 const el = document.getElementById("root");
 if (el !== null) {
-  createRoot(el).render(<App />);
+  // Bridge first: resolveMedia needs boxPlatform (windows vs real box://),
+  // and App's restore effect calls window.box on mount.
+  void installBoxBridge().then(() => createRoot(el).render(<App />));
 }

@@ -16,6 +16,9 @@ export function classifyFileSet(
 ): Delta[] {
   const deltas: Delta[] = [];
   const afterMap = new Map(after.map((e) => [e.path, e]));
+  // Dedupe by path: a scan that reports the same path twice (case-folding
+  // fs, symlink alias, buggy adapter) must not emit duplicate deltas.
+  const unique = [...afterMap.values()];
 
   const deleted: string[] = [];
   const created: FileEntry[] = [];
@@ -23,7 +26,7 @@ export function classifyFileSet(
   for (const [path] of before.files) {
     if (!afterMap.has(path)) deleted.push(path);
   }
-  for (const e of after) {
+  for (const e of unique) {
     const prev = before.files.get(e.path);
     if (prev === undefined) {
       created.push(e);

@@ -5,18 +5,20 @@
 | **Status**  | Contract - every invariant and Stage-1 FR maps to a test here |
 | **Version** | 0.1 - 2026-10-12                                              |
 
-House rules: unit tests need no Electron, GPU, Von, Ollama, or network.
+House rules: unit tests need no webview, GPU, Von, Ollama, or network.
 Anything needing an external tool is an integration test and **skips with a
 logged reason** when the tool is missing - never a silent pass, never a
-spurious failure. Electron proofs write result files; stdout from
-`electron.exe` does not reliably reach a Windows pipe (verified house rule).
+spurious failure. Live-app proofs go through CDP
+(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`,
+driver `tools/cdp-eval.mjs`); assertions read real store state.
 
 ## 1. Pyramid
 
 ```
         manual dogfood (Christian, Stage 1 exit)
-       e2e - Electron selftest → result file
-      integration - real watcher + real fs on fixture dir
+       live-app CDP probes - real WebView2, real watcher, real fs
+      adversarial - boundary attacks (Rust + Vitest suites, §10)
+     integration - real watcher + real fs on fixture dir
      invariant suite - I-1..I-9 (Vitest, tmpdir fixtures)
     unit - box-core pure functions (parsers, reconcile, classify)
 ```
@@ -72,17 +74,57 @@ content preserved.
 
 | test                 | path                                                                                  |
 | -------------------- | ------------------------------------------------------------------------------------- |
-| `it-watcher-refresh` | modify fixture file → assert delta → object refresh (real chokidar, tmpdir)           |
-| `it-open-with`       | mock `shell.openPath`; assert per-type mapping                                        |
+| `it-watcher-refresh` | modify fixture file → assert delta → object refresh (real `notify`, tmpdir)           |
+| `it-open-with`       | live `fs_open_external` via CDP; assert per-type mapping + resolve_inside containment |
 | `it-note-editor`     | CM6 editor → atomic save → note round-trips                                           |
 | `it-von-*`           | Von client: offline → feature no-ops; contract-test payload shape vs `jev-mcp` source |
 
 ## 7. E2E (Stage 2+)
 
-Electron selftest mode: launch built app headless, drive the PoC journey,
-write JSON result to a file, assert on that file in CI. Mirrors the
-ResonanceStudio `test:e2e`/`test:ui` split - selftest for logic, driven-UI
-pass for rendering.
+Tauri webview driven via CDP (`tools/cdp-eval.mjs` against
+`--remote-debugging-port=9223`): assert bridge commands, store state, DOM,
+and `box://` fetches on the live app. A selftest-mode binary flag (write
+result file, exit) is the Stage 2 CI port of this.
+
+## 10. Adversarial suite (landed 2026-10-13, Tauri migration gate)
+
+Two suites attack the system rather than demo it. Both are gate-blocking.
+
+**Rust** (`src-tauri/src/adversarial.rs`, `cargo test`): path-validation
+parity vs `isPathRel` golden table; `resolve_inside` traversal shapes;
+`bound_root` foreign-root rejection; `fs_write_atomic` escape attempts;
+edge-id/tombstone validation; corrupt tombstone ledger; MIME mapping; Range
+table (satisfiable/unsatisfiable/malformed/multi-range/suffix/open-ended);
+empty and missing files; scan exclusions.
+
+**TS** (`packages/box-core/test/adversarial.test.ts`, Vitest): reconcile
+chaos sequences; rename pairing; same size+mtime content collision
+(SHA-256 separates); tombstoned edges; orphan/malformed notes;
+filename↔edge-id mismatch repair; pure-function stability; malformed SVG;
+hostile frontmatter/content; large serializer inputs.
+
+**Live CDP** (`tools/cdp-eval.mjs`, `tools/chaos-storm.mjs`): IPC fuzz via
+`__TAURI_INTERNALS__.invoke` (wrong types, missing fields, giant strings,
+foreign roots, traversal); 100-op filesystem storm → byte-exact store/disk
+convergence; corrupt board mid-session → `malformed-board` problem item;
+malformed asset nodes (truncated png/obj/zip/ttf) mount without uncaught
+errors; FontFace lifecycle (mount→1, unmount→0, remount→1).
+
+### Defects the suite found (all fixed and re-verified)
+
+| #   | defect                                               | root cause                                                                      | fix                                              |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1   | unsatisfiable `Range` (start ≥ len) returned 404     | `http_range` `NoOverlap` mapped to err                                          | return 416 + `Content-Range: bytes */len`        |
+| 2   | `bytes=` (empty spec) treated as valid 416           | `Ok([])` conflated with unsatisfiable                                           | `Ok([])` → malformed error                       |
+| 3   | `classifyFileSet` double-reported duplicate paths    | dedup map built but raw array iterated                                          | iterate deduped map                              |
+| 4   | tombstoned-edge oscillation (delete never converged) | R-D trashed note but left board edge; R-A regenerated stub next pass            | R-D completion strips the board edge same-pass   |
+| 5   | `fs_append_tombstone` accepted any string            | no edge-id contract check                                                       | enforce exactly 16 hex chars                     |
+| 6   | zip thumbnail decompression bomb                     | `unzipSync` eager, no output cap                                                | `filter` rejects entries `originalSize` > 64 MiB |
+| 7   | link-note body grew +1 byte per round-trip           | gray-matter `stringify` appends `\n`; parse only stripped leading fence newline | strip exactly one serializer-added trailing `\n` |
+
+Hardening that shipped in the same pass (not defect-driven): `bound_root`
+session binding on all mutators; 8 MiB cap per `box://` range request;
+lossy UTF-8 `fs_read` (matches prior Node semantics, never null on binary).
 
 ## 8. Verification matrix (living)
 

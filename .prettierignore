@@ -6,3 +6,5 @@ reference
 package-lock.json
 *.box.canvas
 .odin
+**/src-tauri/target
+**/src-tauri/gen

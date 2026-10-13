@@ -30,6 +30,7 @@ Three lanes, cheapest first:
 | T-12  | **Krita `.kra` / Rebelle formats**                                                                          | Inspect (kra is a zip) | Metadata hints for tighter round-trip (Stage 2+)                                                                      | low    | defer                                                                                               |
 | T-13  | **Cosmic Canvas / CanvasMCPClient** (ours)                                                                  | read                   | already inventoried - R-6 done                                                                                        | done   | done                                                                                                |
 | T-14  | **Infinite Canvas landscape** (infinitecanvas.tools, Tietze app, Koll.ai, Atlas, Ferrate mural, AAAI paper) | Docs/web               | Category map + novel mechanics worth adopting (undo-in-file, typed edges, param regions, AI nodes)                    | low    | **done** ([findings](findings/T-14-infinite-canvas-landscape.md))                                   |
+| T-15  | **Shell platform: Electron → Tauri 2**                                                                      | Docs/web + live port   | ADR-0006: engine matrix, WKWebView media state, protocol/Range parity, installer size, iOS path; migration landed     | done   | **done** ([findings](findings/T-15-tauri-platform.md))                                              |
 
 ## Findings log
 

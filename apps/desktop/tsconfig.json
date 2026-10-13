@@ -9,7 +9,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "emitDeclarationOnly": true
   },
-  "include": ["src/**/*", "electron.vite.config.ts"],
+  "include": ["src/**/*", "vite.config.ts"],
   "references": [
     { "path": "../../packages/box-core" },
     { "path": "../../packages/box-ui" }

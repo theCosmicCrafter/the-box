@@ -200,7 +200,7 @@ into an edge (§6, rule R-C) - the create completes correctly.
 
 On edge delete: (1) append `{edgeId, at}` to `.box/tombstones.json`,
 (2) write the board without the edge, (3) move the note to recoverable
-deletion (Recycle Bin; `shell.trashItem` in Electron - provisionally verified,
+deletion (Recycle Bin; `trash` crate under Tauri 2, previously `shell.trashItem` - provisionally verified,
 probe R-3). Crash between steps 1 and 3 leaves an orphan note whose id is
 tombstoned; reconcile completes the delete by trashing it (rule R-D).
 
@@ -215,7 +215,7 @@ note's `*-file` denormalized field. Node ids, edge ids, and note filenames
 never change. Ordering: boards first, then note denorms (denorms are
 cosmetic; a crash there self-heals on next reconcile).
 
-## 5. Watcher semantics (verified by probe R-2, 2026-10-12, fs.watch on Windows)
+## 5. Watcher semantics (verified by probe R-2, 2026-10-12, fs.watch on Windows; `notify` crate under Tauri surfaces the same OS events)
 
 ### 5.1 Observed event behavior
 

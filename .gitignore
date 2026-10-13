@@ -17,3 +17,7 @@ tests/fixtures/work/
 # donor repos: local study material, never tracked
 reference/
 .tmp-eagle/
+
+# Rust build artifacts
+**/src-tauri/target/
+**/src-tauri/gen/
