@@ -18,6 +18,9 @@ export interface BoxState {
   boardPath: string | null;
   board: Board | null;
   boardProblems: ProblemItem[];
+  /** Obsidian-model sidebar visibility - persists across board open/close. */
+  sidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
   setWorkspace: (root: string, files: WorkspaceFile[]) => void;
   setFiles: (files: WorkspaceFile[]) => void;
   setProblems: (problems: string[]) => void;
@@ -38,6 +41,8 @@ export const useBoxStore = create<BoxState>((set) => ({
   boardPath: null,
   board: null,
   boardProblems: [],
+  sidebarOpen: true,
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setWorkspace: (root, files) => set({ workspaceRoot: root, files }),
   setFiles: (files) => set({ files }),
   setProblems: (problems) => set({ problems }),

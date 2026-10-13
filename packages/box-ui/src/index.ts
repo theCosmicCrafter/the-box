@@ -6,5 +6,8 @@ export * from "./canvas/ImageInspector.js";
 export * from "./canvas/NodeView.js";
 export * from "./canvas/Viewport.js";
 export * from "./FileList.js";
+export * from "./FileTree.js";
+export * from "./icons.js";
 export * from "./NotePanel.js";
+export * from "./Ribbon.js";
 export * from "./store.js";

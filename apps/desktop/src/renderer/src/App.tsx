@@ -13,6 +13,7 @@ import type {
   WritePlan,
 } from "@box/core";
 import {
+  baseName,
   BOARD_FORMAT,
   createEdgePlan,
   deleteEdgePlan,
@@ -27,9 +28,11 @@ import {
 import type { WorkspaceFile } from "@box/ui";
 import {
   BoardView,
-  FileList,
+  FileTree,
+  Icon,
   ImageInspector,
   NotePanel,
+  Ribbon,
   useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -103,6 +106,8 @@ export function App() {
     boardPath,
     boardProblems,
     problems,
+    sidebarOpen,
+    setSidebarOpen,
     setWorkspace,
     setFiles,
     openBoard,
@@ -130,6 +135,7 @@ export function App() {
   const [editingNode, setEditingNode] = useState<string | null>(null);
   // Image inspector (PureRef/Eagle): the file path currently inspected.
   const [inspectPath, setInspectPath] = useState<string | null>(null);
+  const newBoardInput = useRef<HTMLInputElement>(null);
 
   // Media URL through the box:// protocol (main validates inside root).
   // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
@@ -453,11 +459,14 @@ export function App() {
     return missing;
   }, [board, files, remote]);
 
-  if (board && boardPath) {
-    return (
-      <main className="shell board-shell">
+  // Obsidian-model shell: ribbon (global actions) + sidebar (vault tree,
+  // persistent) + content (board or welcome). The sidebar stays mounted
+  // beside the board so tree-to-canvas drag never leaves the view.
+  const boardPane =
+    board && boardPath ? (
+      <div className="board-shell">
         <div className="board-bar">
-          <button onClick={closeBoard}>back</button>
+          <button onClick={closeBoard}>close</button>
           <code>{boardPath}</code>
           {boardProblems.length > 0 && (
             <span className="warn">{boardProblems.length} problems</span>
@@ -524,37 +533,57 @@ export function App() {
             />
           )}
         </div>
+      </div>
+    ) : null;
+
+  if (workspaceRoot === null) {
+    return (
+      <main className="shell">
+        <header>
+          <h1>The Box</h1>
+          <p className="tagline">
+            Objects are files. Arrows are notes. Edits round-trip.
+          </p>
+        </header>
+        {problems.length > 0 && (
+          <div className="problems">
+            {problems.map((p, i) => (
+              <div key={i} className="problem">
+                {p}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="welcome">
+          <p>Open a folder to make it a workspace.</p>
+          <button onClick={() => void open()}>Open workspace folder</button>
+        </div>
       </main>
     );
   }
 
   return (
-    <main className="shell">
-      <header>
-        <h1>The Box</h1>
-        <p className="tagline">
-          Objects are files. Arrows are notes. Edits round-trip.
-        </p>
-      </header>
-      {problems.length > 0 && (
-        <div className="problems">
-          {problems.map((p, i) => (
-            <div key={i} className="problem">
-              {p}
-            </div>
-          ))}
-        </div>
-      )}
-      {workspaceRoot === null ? (
-        <div className="welcome">
-          <p>Open a folder to make it a workspace.</p>
-          <button onClick={() => void open()}>Open workspace folder</button>
-        </div>
-      ) : (
-        <>
-          <div className="toolbar">
-            <code>{workspaceRoot}</code>
+    <main className="workbench">
+      <Ribbon
+        hasWorkspace
+        sidebarOpen={sidebarOpen}
+        onOpenWorkspace={() => void open()}
+        onRescan={() => void rescan()}
+        onNewBoard={() => {
+          setSidebarOpen(true);
+          requestAnimationFrame(() => newBoardInput.current?.focus());
+        }}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+      />
+      {sidebarOpen && (
+        <aside className="sidebar">
+          <div className="sidebar-head" title={workspaceRoot}>
+            <Icon name="folder" size={14} />
+            <span>{baseName(workspaceRoot.replace(/[\\/]+$/, ""))}</span>
+          </div>
+          <div className="sidebar-newboard">
             <input
+              ref={newBoardInput}
               placeholder="new board name"
               value={newBoardName}
               onChange={(e) => setNewBoardName(e.target.value)}
@@ -562,12 +591,36 @@ export function App() {
                 if (e.key === "Enter") void newBoard();
               }}
             />
-            <button onClick={() => void newBoard()}>New board</button>
-            <button onClick={() => void rescan()}>Rescan</button>
+            <button onClick={() => void newBoard()} title="New board">
+              <Icon name="filePlus" size={14} />
+            </button>
           </div>
-          <FileList files={files} onOpen={(p) => void loadBoardFile(p)} />
-        </>
+          <FileTree
+            files={files}
+            activePath={boardPath ?? undefined}
+            onOpen={(p) => void loadBoardFile(p)}
+          />
+        </aside>
       )}
+      <div className="wb-content">
+        {problems.length > 0 && (
+          <div className="problems">
+            {problems.map((p, i) => (
+              <div key={i} className="problem">
+                {p}
+              </div>
+            ))}
+          </div>
+        )}
+        {boardPane ?? (
+          <div className="welcome">
+            <p>Select a board in the sidebar, or make a new one.</p>
+            <p className="empty">
+              Drag files from the tree onto the canvas to place them.
+            </p>
+          </div>
+        )}
+      </div>
     </main>
   );
 }
