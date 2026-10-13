@@ -54,6 +54,7 @@ declare global {
         files: WorkspaceFile[];
       } | null>;
       rescan: (root: string) => Promise<WorkspaceFile[]>;
+      lastWorkspace: () => Promise<string | null>;
       watchWorkspace: (
         root: string,
       ) => Promise<{ ok: boolean; error?: string }>;
@@ -158,6 +159,7 @@ export function App() {
     if (r) {
       setWorkspace(r.root, r.files);
       const w = await window.box.watchWorkspace(r.root);
+      await openFirstBoard(r.files, r.root);
       if (!w.ok)
         useBoxStore
           .getState()
@@ -174,8 +176,11 @@ export function App() {
   };
 
   const loadBoardFile = async (rel: string) => {
-    if (!workspaceRoot || !window.box) return false;
-    const text = await window.box.readFile(workspaceRoot, rel);
+    // Read root from the store, not the closure: callers that just ran
+    // setWorkspace (open, restore) still see the pre-set state value.
+    const root = useBoxStore.getState().workspaceRoot;
+    if (!root || !window.box) return false;
+    const text = await window.box.readFile(root, rel);
     if (text === null) return false;
     const { value, problems } = parseBoard(text, rel);
     if (value) {
@@ -184,6 +189,31 @@ export function App() {
     }
     useBoxStore.getState().setProblems(problems.map(fmtProblem));
     return false;
+  };
+
+  // "Notepad ready" (Obsidian): opening a workspace lands you on a board -
+  // the first .box.canvas found, or a fresh .box/main.box.canvas if none.
+  const openFirstBoard = async (files: WorkspaceFile[], root: string) => {
+    const first = files
+      .map((f) => f.path)
+      .filter((p) => p.endsWith(".box.canvas"))
+      .sort()[0];
+    if (first !== undefined) {
+      await loadBoardFile(first);
+      return;
+    }
+    const rel = ".box/main.box.canvas";
+    const r = await window.box?.writeFileAtomic(
+      root,
+      rel,
+      serializeBoard({ nodes: [], edges: [], "box-format": BOARD_FORMAT }),
+    );
+    if (r?.ok === true) {
+      useBoxStore
+        .getState()
+        .setFiles([...files, { path: rel, size: 0, mtime: Date.now() }]);
+      await loadBoardFile(rel);
+    }
   };
 
   // New board: write the empty canvas file, then open it.
@@ -212,6 +242,22 @@ export function App() {
       useBoxStore.getState().setProblems([`board create failed: ${r.error}`]);
     }
   };
+
+  // Launch restore (Obsidian opens your last vault). Once per mount;
+  // readLastWorkspace in main already stat-checks the dir still exists.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || !window.box) return;
+    restored.current = true;
+    void (async () => {
+      const last = await window.box!.lastWorkspace();
+      if (!last) return;
+      const files = await window.box!.rescan(last);
+      await window.box!.watchWorkspace(last);
+      useBoxStore.getState().setWorkspace(last, files);
+      await openFirstBoard(files, last);
+    })();
+  }, []);
 
   // Document excerpts for file nodes (md/txt first 400 chars).
   useEffect(() => {
@@ -465,29 +511,29 @@ export function App() {
   const boardPane =
     board && boardPath ? (
       <div className="board-shell">
-        <div className="board-bar">
-          <button onClick={closeBoard}>close</button>
-          <code>{boardPath}</code>
-          {boardProblems.length > 0 && (
-            <span className="warn">{boardProblems.length} problems</span>
-          )}
-          {brokenNodes.size > 0 && (
+        {/* nothing-but-canvas: chrome floats over the canvas, no bar */}
+        <div className="board-float">
+          {(boardProblems.length > 0 || brokenNodes.size > 0) && (
             <span
               className="warn"
-              title={[...brokenNodes]
-                .map((id) => {
+              title={[
+                ...boardProblems.map(fmtProblem),
+                ...[...brokenNodes].map((id) => {
                   const n = board.nodes.find((x) => x.id === id);
-                  return n?.type === "file" ? n.file : id;
-                })
-                .join("\n")}
+                  return `missing: ${n?.type === "file" ? n.file : id}`;
+                }),
+              ].join("\n")}
             >
-              {brokenNodes.size} missing files
+              {boardProblems.length + brokenNodes.size} issues
             </span>
           )}
-          <span className="hint">
-            wheel: pan / ctrl+wheel: zoom / drag nodes / click an edge for its
-            note
-          </span>
+          <button
+            className="board-close"
+            onClick={closeBoard}
+            title="Close board"
+          >
+            x
+          </button>
         </div>
         <div className="board-body">
           <BoardView
@@ -536,36 +582,13 @@ export function App() {
       </div>
     ) : null;
 
-  if (workspaceRoot === null) {
-    return (
-      <main className="shell">
-        <header>
-          <h1>The Box</h1>
-          <p className="tagline">
-            Objects are files. Arrows are notes. Edits round-trip.
-          </p>
-        </header>
-        {problems.length > 0 && (
-          <div className="problems">
-            {problems.map((p, i) => (
-              <div key={i} className="problem">
-                {p}
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="welcome">
-          <p>Open a folder to make it a workspace.</p>
-          <button onClick={() => void open()}>Open workspace folder</button>
-        </div>
-      </main>
-    );
-  }
-
+  // Always the workbench: ribbon + sidebar + canvas. No workspace → the
+  // sidebar holds the open-folder action and content is a bare canvas
+  // surface - nothing but canvas on the inside, ever.
   return (
     <main className="workbench">
       <Ribbon
-        hasWorkspace
+        hasWorkspace={workspaceRoot !== null}
         sidebarOpen={sidebarOpen}
         onOpenWorkspace={() => void open()}
         onRescan={() => void rescan()}
@@ -577,29 +600,38 @@ export function App() {
       />
       {sidebarOpen && (
         <aside className="sidebar">
-          <div className="sidebar-head" title={workspaceRoot}>
-            <Icon name="folder" size={14} />
-            <span>{baseName(workspaceRoot.replace(/[\\/]+$/, ""))}</span>
-          </div>
-          <div className="sidebar-newboard">
-            <input
-              ref={newBoardInput}
-              placeholder="new board name"
-              value={newBoardName}
-              onChange={(e) => setNewBoardName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void newBoard();
-              }}
-            />
-            <button onClick={() => void newBoard()} title="New board">
-              <Icon name="filePlus" size={14} />
-            </button>
-          </div>
-          <FileTree
-            files={files}
-            activePath={boardPath ?? undefined}
-            onOpen={(p) => void loadBoardFile(p)}
-          />
+          {workspaceRoot === null ? (
+            <div className="sidebar-empty">
+              <p>No workspace open.</p>
+              <button onClick={() => void open()}>Open workspace folder</button>
+            </div>
+          ) : (
+            <>
+              <div className="sidebar-head" title={workspaceRoot}>
+                <Icon name="folder" size={14} />
+                <span>{baseName(workspaceRoot.replace(/[\\/]+$/, ""))}</span>
+              </div>
+              <div className="sidebar-newboard">
+                <input
+                  ref={newBoardInput}
+                  placeholder="new board name"
+                  value={newBoardName}
+                  onChange={(e) => setNewBoardName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void newBoard();
+                  }}
+                />
+                <button onClick={() => void newBoard()} title="New board">
+                  <Icon name="filePlus" size={14} />
+                </button>
+              </div>
+              <FileTree
+                files={files}
+                activePath={boardPath ?? undefined}
+                onOpen={(p) => void loadBoardFile(p)}
+              />
+            </>
+          )}
         </aside>
       )}
       <div className="wb-content">
@@ -613,11 +645,12 @@ export function App() {
           </div>
         )}
         {boardPane ?? (
-          <div className="welcome">
-            <p>Select a board in the sidebar, or make a new one.</p>
-            <p className="empty">
-              Drag files from the tree onto the canvas to place them.
-            </p>
+          <div className="empty-canvas">
+            <span className="empty-canvas-hint">
+              {workspaceRoot === null
+                ? "open a workspace from the sidebar"
+                : "select a board, or make one in the sidebar"}
+            </span>
           </div>
         )}
       </div>

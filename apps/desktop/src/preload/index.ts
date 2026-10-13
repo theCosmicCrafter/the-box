@@ -30,6 +30,8 @@ const api = {
     ipcRenderer.invoke("workspace:open"),
   rescan: (root: string): Promise<WorkspaceFile[]> =>
     ipcRenderer.invoke("workspace:rescan", root),
+  lastWorkspace: (): Promise<string | null> =>
+    ipcRenderer.invoke("workspace:last"),
   watchWorkspace: (root: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("workspace:watch", root),
   onWorkspaceChanged: (

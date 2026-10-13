@@ -287,30 +287,90 @@ button:hover {
   flex: 1;
   min-height: 0;
   padding: 0;
+  position: relative;
 }
 
-.board-bar {
+/* Nothing-but-canvas: the board's only chrome is a floating chip. */
+
+.board-float {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  padding: 8px 16px;
-  border-bottom: 1px solid #232833;
-  background: #14171d;
 }
 
-.board-bar code {
-  color: #9aa3b2;
-}
-
-.board-bar .warn {
+.board-float .warn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #5a3a3a;
+  background: rgba(15, 17, 21, 0.85);
   color: #e0a34a;
   font-size: 12px;
 }
 
-.board-bar .hint {
-  margin-left: auto;
+.board-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #3a4150;
+  background: rgba(15, 17, 21, 0.85);
+  color: #9aa3b2;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.board-close:hover {
+  border-color: #2f6fed;
+  color: #d8dce4;
+}
+
+/* Bare canvas surface when no board is open - the inside is always canvas. */
+
+.empty-canvas {
+  flex: 1;
+  position: relative;
+  background-image: radial-gradient(circle, #232833 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.empty-canvas-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   color: #4d5665;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.sidebar-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  color: #6a7280;
   font-size: 12px;
+  text-align: center;
+}
+
+.sidebar-empty button {
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 4px;
+  color: #d8dce4;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sidebar-empty button:hover {
+  border-color: #2f6fed;
 }
 
 .file-list button.link {

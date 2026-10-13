@@ -186,6 +186,37 @@ interface WatchSession {
 }
 
 let session: WatchSession | null = null;
+
+// Session memory: which workspace was last open (Obsidian reopens your
+// last vault on launch - same contract). userData JSON, written on open.
+const sessionFile = () => join(app.getPath("userData"), "box-session.json");
+async function saveLastWorkspace(root: string): Promise<void> {
+  try {
+    await writeFile(
+      sessionFile(),
+      `${JSON.stringify({ lastWorkspace: root })}\n`,
+      "utf8",
+    );
+  } catch {
+    // best-effort: session memory is a cache, never a failure mode
+  }
+}
+async function readLastWorkspace(): Promise<string | null> {
+  try {
+    const raw = await readFile(sessionFile(), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    const p =
+      typeof parsed === "object" && parsed !== null
+        ? (parsed as { lastWorkspace?: unknown }).lastWorkspace
+        : null;
+    if (typeof p !== "string") return null;
+    const st = await stat(p).catch(() => null);
+    return st?.isDirectory() ? p : null;
+  } catch {
+    return null;
+  }
+}
+
 // Media root for the box:// protocol: the currently open workspace.
 // Tracked separately from the watch session so media still resolves if
 // the watcher is unavailable (Linux manual-rescan mode).
@@ -411,9 +442,12 @@ void app.whenReady().then(() => {
     if (r.canceled || r.filePaths.length === 0) return null;
     const root = r.filePaths[0]!;
     workspaceRoot = root;
+    void saveLastWorkspace(root);
     const files = await scanDir(root);
     return { root, files };
   });
+
+  ipcMain.handle("workspace:last", async () => await readLastWorkspace());
 
   ipcMain.handle("workspace:rescan", async (_e, root: string) => {
     return await scanDir(root);
@@ -424,6 +458,7 @@ void app.whenReady().then(() => {
   ipcMain.handle("workspace:watch", async (event, root: string) => {
     stopSession();
     workspaceRoot = root;
+    void saveLastWorkspace(root);
     let watcher: FSWatcher;
     try {
       watcher = watch(root, { recursive: true }, () => {
