@@ -28,6 +28,16 @@ export function NotePanel({
       ? (note.frontmatter["type"] as string)
       : "",
   );
+
+  useEffect(() => {
+    setBody(note.body);
+    setType(
+      typeof note.frontmatter["type"] === "string"
+        ? (note.frontmatter["type"] as string)
+        : "",
+    );
+  }, [note]);
+
   const dirty = body !== note.body || type !== (note.frontmatter["type"] ?? "");
 
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);

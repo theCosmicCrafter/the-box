@@ -34,7 +34,7 @@ for (const s of steps) {
     y: s.y,
     button: s.button ?? "left",
     buttons: s.type === "move" ? (s.buttons ?? 1) : 1,
-    clickCount: 1,
+    clickCount: s.count ?? 1,
     pointerType: "mouse",
   });
   if (s.type === "click") {
@@ -44,7 +44,7 @@ for (const s of steps) {
       y: s.y,
       button: s.button ?? "left",
       buttons: 0,
-      clickCount: 1,
+      clickCount: s.count ?? 1,
       pointerType: "mouse",
     });
   }
