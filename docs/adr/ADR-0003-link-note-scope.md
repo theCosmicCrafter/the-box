@@ -1,8 +1,8 @@
 # ADR-0003 - Link notes are workspace-global (OQ-4)
 
-| Status | Date | Supersedes |
-|---|---|---|
-| **Accepted - pending group ratify** | 2026-10-12 | - |
+| Status                              | Date       | Supersedes |
+| ----------------------------------- | ---------- | ---------- |
+| **Accepted - pending group ratify** | 2026-10-12 | -          |
 
 ## Context
 
@@ -20,7 +20,7 @@ on (informational). Deleting the note removes the edge from every board.
 
 ## Consequences
 
-- "The relationship between A and B" is a fact about the *files*, not about
+- "The relationship between A and B" is a fact about the _files_, not about
   one view - matches Christian's model ("an arrow documents the join").
 - The graph/index can answer "what relates to X" without knowing boards.
 - Sync engine handles the multi-board edge case already (I-6).

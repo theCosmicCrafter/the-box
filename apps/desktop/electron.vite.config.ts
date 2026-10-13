@@ -1,20 +1,20 @@
-import { defineConfig } from 'electron-vite';
+import { defineConfig } from "electron-vite";
 
 export default defineConfig({
   main: {
     build: {
-      outDir: 'out/main',
+      outDir: "out/main",
     },
   },
   preload: {
     build: {
-      outDir: 'out/preload',
+      outDir: "out/preload",
     },
   },
   renderer: {
-    esbuild: { jsx: 'automatic' },
+    esbuild: { jsx: "automatic" },
     build: {
-      outDir: 'out/renderer',
+      outDir: "out/renderer",
     },
   },
 });

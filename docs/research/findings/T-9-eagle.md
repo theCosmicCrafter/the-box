@@ -1,10 +1,10 @@
 # T-9 - Eagle (asset manager, installed)
 
-| | |
-|---|---|
-| **Method** | eagle-mcp-server code read (local project knows the layout) |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete |
+|              |                                                             |
+| ------------ | ----------------------------------------------------------- |
+| **Method**   | eagle-mcp-server code read (local project knows the layout) |
+| **Verified** | 2026-10-12                                                  |
+| **Status**   | Complete                                                    |
 
 ## Findings
 
@@ -20,10 +20,10 @@
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
+| adopt                                                                                               | reject                                                                                        |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | Per-item container holding asset + metadata + thumb (strong precedent for object = folder-of-files) | `.info` dir per file adds clutter vs our flat+sidecars (ours is cleaner for a creative vault) |
-| Local-API-for-agents precedent (box-mcp does this for our boards) | - |
+| Local-API-for-agents precedent (box-mcp does this for our boards)                                   | -                                                                                             |
 
 ## Implication
 

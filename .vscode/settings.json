@@ -1,0 +1,10 @@
+{
+  "files.eol": "\n",
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    // Never prune or reorganize imports on save: it silently removes
+    // imports added mid-edit before their usages land.
+    "source.organizeImports": "never"
+  }
+}

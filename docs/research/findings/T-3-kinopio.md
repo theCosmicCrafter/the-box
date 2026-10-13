@@ -1,10 +1,10 @@
 # T-3 - Kinopio
 
-| | |
-|---|---|
-| **Method** | clone `kinopio-club/kinopio-client` |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete (data model) |
+|              |                                     |
+| ------------ | ----------------------------------- |
+| **Method**   | clone `kinopio-club/kinopio-client` |
+| **Verified** | 2026-10-12                          |
+| **Status**   | Complete (data model)               |
 
 ## Findings
 
@@ -22,10 +22,10 @@
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
+| adopt                                                                                                                                                           | reject                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | **Named connection types with color** - the "meaning" lives on the type, maps directly to our link-note `type` field (supports/contradicts/inspired-by/part-of) | server-first sync model |
-| Control-point bezier edge routing reference | cards-not-files model |
+| Control-point bezier edge routing reference                                                                                                                     | cards-not-files model   |
 
 ## Implication
 

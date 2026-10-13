@@ -19,7 +19,7 @@ not before. Pulling anything from the north-star lot forward requires an ADR.
 ## Stage 1 - PoC (the wedge)
 
 **Goal:** prove the three-sentence spec end to end. The PoC exists to prove
-*sync*, not canvas - that's the risk worth retiring first.
+_sync_, not canvas - that's the risk worth retiring first.
 
 - [ ] FR-101..FR-113 (objects, ink, arrows↔notes, round-trip, `.box.canvas`)
 - [ ] Invariant tests I-1..I-5 green (I-6..I-9 land with their features)

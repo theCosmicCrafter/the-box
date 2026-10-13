@@ -50,6 +50,9 @@ export class MemoryVault implements IVault {
   }
 
   async scan(): Promise<FileEntry[]> {
-    return [...this.files.keys()].map((path) => ({ path, size: this.files.get(path)?.length ?? 0 }));
+    return [...this.files.keys()].map((path) => ({
+      path,
+      size: this.files.get(path)?.length ?? 0,
+    }));
   }
 }

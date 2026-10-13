@@ -8,8 +8,8 @@ labels: bug
 
 ## Reproduction
 
-1. 
-2. 
+1.
+2.
 
 ## Workspace context
 

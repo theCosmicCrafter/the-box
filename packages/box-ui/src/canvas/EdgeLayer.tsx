@@ -7,7 +7,7 @@
 // Edges are clickable (fat invisible hit-path) for select+delete; a `draft`
 // prop renders the live preview while a connection is being drawn.
 
-import type { Board, CanvasEdge, CanvasNode, Side } from '@box/core';
+import type { Board, CanvasEdge, CanvasNode, Side } from "@box/core";
 
 export const NORMALS: Record<Side, { nx: number; ny: number }> = {
   top: { nx: 0, ny: -1 },
@@ -28,7 +28,7 @@ export function anchor(node: CanvasNode, side: Side) {
 /** Cubic bezier between two anchored endpoints. */
 export function edgePathD(
   a1: { x: number; y: number; nx: number; ny: number },
-  a2: { x: number; y: number; nx: number; ny: number }
+  a2: { x: number; y: number; nx: number; ny: number },
 ): string {
   const bend = Math.max(60, Math.hypot(a2.x - a1.x, a2.y - a1.y) * 0.35);
   return `M ${a1.x} ${a1.y} C ${a1.x + a1.nx * bend} ${a1.y + a1.ny * bend}, ${a2.x + a2.nx * bend} ${a2.y + a2.ny * bend}, ${a2.x} ${a2.y}`;
@@ -48,32 +48,64 @@ export interface EdgeLayerProps {
   draft?: DraftEdge | null;
 }
 
-export function EdgeLayer({ board, brokenEdges, selectedId, onSelect, draft }: EdgeLayerProps) {
+export function EdgeLayer({
+  board,
+  brokenEdges,
+  selectedId,
+  onSelect,
+  draft,
+}: EdgeLayerProps) {
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
 
   const paths = board.edges.flatMap((e: CanvasEdge) => {
     const from = byId.get(e.fromNode);
     const to = byId.get(e.toNode);
     if (!from && !to) return []; // both gone - surfaced via brokenEdges, no geometry exists
-    const a1 = from ? anchor(from, e.fromSide ?? 'right') : null;
-    const a2 = to ? anchor(to, e.toSide ?? 'left') : null;
+    const a1 = from ? anchor(from, e.fromSide ?? "right") : null;
+    const a2 = to ? anchor(to, e.toSide ?? "left") : null;
     const broken = brokenEdges.has(e.id) || !from || !to;
     // Stub: extend the surviving anchor 60px along its outward normal.
-    const start = a1 ?? { x: a2!.x - 60 * a2!.nx, y: a2!.y - 60 * a2!.ny, nx: a2!.nx, ny: a2!.ny };
-    const end = a2 ?? { x: a1!.x + 60 * a1!.nx, y: a1!.y + 60 * a1!.ny, nx: a1!.nx, ny: a1!.ny };
+    const start = a1 ?? {
+      x: a2!.x - 60 * a2!.nx,
+      y: a2!.y - 60 * a2!.ny,
+      nx: a2!.nx,
+      ny: a2!.ny,
+    };
+    const end = a2 ?? {
+      x: a1!.x + 60 * a1!.nx,
+      y: a1!.y + 60 * a1!.ny,
+      nx: a1!.nx,
+      ny: a1!.ny,
+    };
     return [{ e, d: edgePathD(start, end), broken }];
   });
 
-  const marker = (end: CanvasEdge['fromEnd'], broken: boolean) =>
-    end === 'arrow' ? `url(#arrowhead${broken ? '-broken' : ''})` : undefined;
+  const marker = (end: CanvasEdge["fromEnd"], broken: boolean) =>
+    end === "arrow" ? `url(#arrowhead${broken ? "-broken" : ""})` : undefined;
 
   return (
     <svg className="edge-layer" data-count={paths.length}>
       <defs>
-        <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker
+          id="arrowhead"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow" />
         </marker>
-        <marker id="arrowhead-broken" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <marker
+          id="arrowhead-broken"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto-start-reverse"
+        >
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
       </defs>
@@ -81,7 +113,7 @@ export function EdgeLayer({ board, brokenEdges, selectedId, onSelect, draft }: E
         <g key={e.id}>
           <path
             d={d}
-            className={`edge ${broken ? 'broken' : ''} ${selectedId === e.id ? 'selected' : ''}`}
+            className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""}`}
             markerStart={marker(e.fromEnd, broken)}
             markerEnd={marker(e.toEnd, broken)}
           />
@@ -98,7 +130,10 @@ export function EdgeLayer({ board, brokenEdges, selectedId, onSelect, draft }: E
         </g>
       ))}
       {draft && (
-        <path d={edgePathD(draft.from, draft.to)} className={`edge draft ${draft.overTarget ? 'over' : ''}`} />
+        <path
+          d={edgePathD(draft.from, draft.to)}
+          className={`edge draft ${draft.overTarget ? "over" : ""}`}
+        />
       )}
     </svg>
   );

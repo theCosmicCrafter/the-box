@@ -1,10 +1,10 @@
 # T-4 - tldraw (deep look)
 
-| | |
-|---|---|
-| **Method** | clone `tldraw/tldraw` + license read |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete - **out as a dependency; high-value study material** |
+|              |                                                               |
+| ------------ | ------------------------------------------------------------- |
+| **Method**   | clone `tldraw/tldraw` + license read                          |
+| **Verified** | 2026-10-12                                                    |
+| **Status**   | Complete - **out as a dependency; high-value study material** |
 
 ## What tldraw actually is
 
@@ -42,10 +42,10 @@ in SOTA-SURVEY and ADR-0004.
 1. **Schema + migrations** (`tlschema/src/migrations`, `createTLSchema`):
    records declare a version and a migration chain; opening old data runs
    the chain. Our `box-format` needs exactly this when `box.canvas/2` ever
-   ships - adopt the *pattern*: `{version, migrate(old)→new}` per format.
+   ships - adopt the _pattern_: `{version, migrate(old)→new}` per format.
 2. **Bindings as first-class records** (`TLBinding`, `TLArrowBinding`):
    an arrow's attachment is a separate typed record `{fromId, toId, props
-   {anchor, terminal}}`, not fields buried inside shapes. Validates our
+{anchor, terminal}}`, not fields buried inside shapes. Validates our
    design instinct: the connection is an entity, not a decoration - we go
    further and make it a file.
 3. **Signals store** (`@tldraw/state`): granular reactivity - only the

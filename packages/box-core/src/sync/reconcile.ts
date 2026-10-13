@@ -255,8 +255,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
       if (b !== null) {
         const fileOf = (id: string) =>
           b.nodes.find((n) => n.id === id && n.type === "file")?.["file"] as
-            | string
-            | undefined;
+            string | undefined;
         const ff = fileOf(note.frontmatter.from);
         const tf = fileOf(note.frontmatter.to);
         if (

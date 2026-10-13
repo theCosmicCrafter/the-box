@@ -1,10 +1,10 @@
 # T-8 - Heptabase
 
-| | |
-|---|---|
-| **Method** | `Heptabase-Setup-1.112.3.exe` (official GitHub release, `heptameta/project-meta`) → NSIS → `app-64.7z` → `app.asar` extracted; plus vendor's public `heptabase-cli-skills` repo |
-| **Verified** | 2026-10-13 |
-| **Status** | Complete |
+|              |                                                                                                                                                                                 |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Method**   | `Heptabase-Setup-1.112.3.exe` (official GitHub release, `heptameta/project-meta`) → NSIS → `app-64.7z` → `app.asar` extracted; plus vendor's public `heptabase-cli-skills` repo |
+| **Verified** | 2026-10-13                                                                                                                                                                      |
+| **Status**   | Complete                                                                                                                                                                        |
 
 ## Verified architecture (from the extracted bundle)
 
@@ -23,7 +23,7 @@
   separation as our file+placement model.
 - **Connections** (vendor schema):
   `{from:{id,objectType,position}, to:{...}, direction: oneWay|twoWay|none,
-  routeType: straight|elbow|curve}`, positions `auto|top|right|bottom|left`.
+routeType: straight|elbow|curve}`, positions `auto|top|right|bottom|left`.
   **No label, no type vocabulary, no attached document** - connections are
   geometry + direction only. The arrow-meaning gap Christian identified is
   confirmed at API level.
@@ -53,13 +53,13 @@ spec). Documented properties:
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
-| `inst:` placement IDs vs canonical object IDs (already our model, validated) | DB-as-truth |
-| Connection schema: endpoint positions + direction + routeType for our edge geometry | ProseMirror JSON as storage format (markdown files stay our truth; TipTap as *editor* is unaffected) |
-| Agent surface: in-app local server + CLI + published skills = box-mcp template | vendor warning model ("don't touch the DB") - ours must be the opposite: files are documented and safe |
-| "Created by AI" provenance marking for agent-created objects/notes | - |
-| Lint+screenshot QC loop for agent canvas work | - |
+| adopt                                                                               | reject                                                                                                 |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `inst:` placement IDs vs canonical object IDs (already our model, validated)        | DB-as-truth                                                                                            |
+| Connection schema: endpoint positions + direction + routeType for our edge geometry | ProseMirror JSON as storage format (markdown files stay our truth; TipTap as _editor_ is unaffected)   |
+| Agent surface: in-app local server + CLI + published skills = box-mcp template      | vendor warning model ("don't touch the DB") - ours must be the opposite: files are documented and safe |
+| "Created by AI" provenance marking for agent-created objects/notes                  | -                                                                                                      |
+| Lint+screenshot QC loop for agent canvas work                                       | -                                                                                                      |
 
 ## Implication
 

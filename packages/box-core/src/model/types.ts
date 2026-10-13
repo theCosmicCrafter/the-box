@@ -3,13 +3,20 @@
 // Model objects ARE the JSON objects: unknown fields ride along on the
 // index signature so parse→serialize preserves them (forward tolerance).
 
-export type CanvasNodeType = 'text' | 'file' | 'link' | 'group';
-export type Side = 'top' | 'right' | 'bottom' | 'left';
-export type EndStyle = 'none' | 'arrow';
+export type CanvasNodeType = "text" | "file" | "link" | "group";
+export type Side = "top" | "right" | "bottom" | "left";
+export type EndStyle = "none" | "arrow";
 
 export interface Placement {
-  '2d': { x: number; y: number; w: number; h: number; z?: number };
-  '3d': null | { x: number; y: number; z: number; rx?: number; ry?: number; rz?: number };
+  "2d": { x: number; y: number; w: number; h: number; z?: number };
+  "3d": null | {
+    x: number;
+    y: number;
+    z: number;
+    rx?: number;
+    ry?: number;
+    rz?: number;
+  };
 }
 
 interface BaseNode {
@@ -20,30 +27,30 @@ interface BaseNode {
   width: number;
   height: number;
   color?: string;
-  'box-placement'?: Placement;
+  "box-placement"?: Placement;
   [extra: string]: unknown;
 }
 
 export interface TextNode extends BaseNode {
-  type: 'text';
+  type: "text";
   text: string;
 }
 
 export interface FileNode extends BaseNode {
-  type: 'file';
+  type: "file";
   file: string;
   subpath?: string;
-  'box-ink'?: string;
-  'box-media'?: { kind: 'image' | 'video' | 'audio' | 'doc' };
+  "box-ink"?: string;
+  "box-media"?: { kind: "image" | "video" | "audio" | "doc" };
 }
 
 export interface LinkNode extends BaseNode {
-  type: 'link';
+  type: "link";
   url: string;
 }
 
 export interface GroupNode extends BaseNode {
-  type: 'group';
+  type: "group";
   label?: string;
   background?: string;
   backgroundStyle?: string;
@@ -61,31 +68,31 @@ export interface CanvasEdge {
   toEnd?: EndStyle;
   color?: string;
   label?: string;
-  'box-link': string; // `link-<edgeid>.md` - required; unbacked edges are malformed
+  "box-link": string; // `link-<edgeid>.md` - required; unbacked edges are malformed
   [extra: string]: unknown;
 }
 
 export interface Board {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
-  'box-format': 'box.canvas/1';
+  "box-format": "box.canvas/1";
   version?: number;
   [extra: string]: unknown;
 }
 
 // ---- link notes (DATA-MODEL §3) ----
 
-export const LINK_NOTE_FORMAT = 'box.link/1' as const;
-export const BOARD_FORMAT = 'box.canvas/1' as const;
+export const LINK_NOTE_FORMAT = "box.link/1" as const;
+export const BOARD_FORMAT = "box.canvas/1" as const;
 
 export interface LinkNoteFrontmatter {
-  'box-edge': string; // 16 hex, must equal filename slug
-  'box-format': string; // 'box.link/1'
+  "box-edge": string; // 16 hex, must equal filename slug
+  "box-format": string; // 'box.link/1'
   from: string; // node id
   to: string; // node id
   board?: string; // board filename; informational (notes are workspace-global)
-  'from-file'?: string; // denormalized display field
-  'to-file'?: string;
+  "from-file"?: string; // denormalized display field
+  "to-file"?: string;
   type?: string;
   created: string; // RFC 3339 UTC
   [extra: string]: unknown;
@@ -100,7 +107,7 @@ export interface LinkNote {
 export interface InkStroke {
   d: string; // SVG path data
   stroke?: string;
-  'stroke-width'?: number;
+  "stroke-width"?: number;
   [extra: string]: unknown;
 }
 
@@ -111,9 +118,9 @@ export interface InkSidecar {
 // ---- write plans (all file mutations flow through these) ----
 
 export type WriteStep =
-  | { op: 'write-atomic'; path: string; content: string }
-  | { op: 'trash'; path: string }
-  | { op: 'append-tombstone'; edgeId: string };
+  | { op: "write-atomic"; path: string; content: string }
+  | { op: "trash"; path: string }
+  | { op: "append-tombstone"; edgeId: string };
 
 export interface WritePlan {
   steps: WriteStep[];
@@ -124,13 +131,13 @@ export interface WritePlan {
 
 export interface ProblemItem {
   kind:
-    | 'malformed-board'
-    | 'malformed-note'
-    | 'edge-without-note'
-    | 'broken-node'
-    | 'broken-edge'
-    | 'duplicate-id'
-    | 'tombstone-complete';
+    | "malformed-board"
+    | "malformed-note"
+    | "edge-without-note"
+    | "broken-node"
+    | "broken-edge"
+    | "duplicate-id"
+    | "tombstone-complete";
   path: string;
   detail: string;
 }
@@ -144,7 +151,7 @@ export interface ReconcileReport {
 
 // ---- watch deltas ----
 
-export type DeltaKind = 'created' | 'deleted' | 'modified' | 'renamed';
+export type DeltaKind = "created" | "deleted" | "modified" | "renamed";
 
 export interface Delta {
   kind: DeltaKind;

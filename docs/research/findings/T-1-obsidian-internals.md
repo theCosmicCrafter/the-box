@@ -1,10 +1,10 @@
 # T-1 - Obsidian internals (obsidian.asar)
 
-| | |
-|---|---|
-| **Method** | `npx @electron/asar extract` on `obsidian.asar` → `app.js` (3.9MB bundled JS) read directly |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete (canvas scope; deeper file-watch semantics still open if needed) |
+|              |                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| **Method**   | `npx @electron/asar extract` on `obsidian.asar` → `app.js` (3.9MB bundled JS) read directly |
+| **Verified** | 2026-10-12                                                                                  |
+| **Status**   | Complete (canvas scope; deeper file-watch semantics still open if needed)                   |
 
 ## Findings that feed the contract
 
@@ -35,11 +35,11 @@
 
 ## What we adopt vs reject
 
-| adopt | reject |
-|---|---|
+| adopt                                                                    | reject                                                    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------- |
 | `unknownData` preservation pattern (we get it free via index signatures) | label-only decorative edges (ours are always note-backed) |
-| Debounced save discipline (already in spec) | normalize-dangling-to-"" (we preserve + flag) |
-| `actionSwapFile` node-file swap as a UX feature idea | internal index as anything but cache |
+| Debounced save discipline (already in spec)                              | normalize-dangling-to-"" (we preserve + flag)             |
+| `actionSwapFile` node-file swap as a UX feature idea                     | internal index as anything but cache                      |
 
 ## Implication for The Box
 

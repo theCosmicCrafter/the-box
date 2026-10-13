@@ -5,11 +5,11 @@ stay fast.
 
 ## Roles
 
-| role | person | owns |
-|---|---|---|
-| Product owner | **Christian** | scope, UX feel, feature calls, dogfood sign-off, the app-list evaluation input |
-| Engineering lead | **Rich** | architecture, file formats, infrastructure, quality gates, tooling |
-| Contributors | agents + future humans | work inside the conventions here |
+| role             | person                 | owns                                                                           |
+| ---------------- | ---------------------- | ------------------------------------------------------------------------------ |
+| Product owner    | **Christian**          | scope, UX feel, feature calls, dogfood sign-off, the app-list evaluation input |
+| Engineering lead | **Rich**               | architecture, file formats, infrastructure, quality gates, tooling             |
+| Contributors     | agents + future humans | work inside the conventions here                                               |
 
 A decision needs the owner of its domain; cross-domain decisions (scope vs.
 feasibility, format vs. UX) need both.

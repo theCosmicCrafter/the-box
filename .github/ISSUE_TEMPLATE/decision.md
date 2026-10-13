@@ -9,8 +9,8 @@ labels: decision
 ## Options considered
 
 | option | consequences |
-|---|---|
-| | |
+| ------ | ------------ |
+|        |              |
 
 ## Recommendation (if any)
 

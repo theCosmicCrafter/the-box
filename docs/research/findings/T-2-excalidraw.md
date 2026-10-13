@@ -1,19 +1,19 @@
 # T-2 - Excalidraw
 
-| | |
-|---|---|
-| **Method** | clone `excalidraw/excalidraw` (MIT) |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete (format + binding model) |
+|              |                                     |
+| ------------ | ----------------------------------- |
+| **Method**   | clone `excalidraw/excalidraw` (MIT) |
+| **Verified** | 2026-10-12                          |
+| **Status**   | Complete (format + binding model)   |
 
 ## Findings
 
 1. **File format** (`data/types.ts`, `data/json.ts`):
    `{type:'excalidraw', version, source, elements[], appState{}, files:BinaryFiles}`
    - flat element array + app-level state + embedded binary blobs (images
-   stored base64 inside the file by id). Self-contained portable document -
-   the opposite pole from our "objects are real files" (their images live
-   INSIDE the json; ours stay files).
+     stored base64 inside the file by id). Self-contained portable document -
+     the opposite pole from our "objects are real files" (their images live
+     INSIDE the json; ours stay files).
 2. **Bidirectional binding model** (`element/src/binding.ts`,
    `arrowEndpointText.ts`):
    - Shapes carry `boundElements[]` - refs to arrows/text bound to them.
@@ -25,11 +25,11 @@
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
-| Bound-element pattern: edges reference endpoints AND endpoints can enumerate their edges (index gives us this two ways) | embedded binary blobs (ours stay files) |
-| Label-as-element thinking - our note is even more first-class | single flat scene file (we're folder-based) |
-| `fractional-indexing` if board z-order ever needs stable ordering across tools | - |
+| adopt                                                                                                                   | reject                                      |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Bound-element pattern: edges reference endpoints AND endpoints can enumerate their edges (index gives us this two ways) | embedded binary blobs (ours stay files)     |
+| Label-as-element thinking - our note is even more first-class                                                           | single flat scene file (we're folder-based) |
+| `fractional-indexing` if board z-order ever needs stable ordering across tools                                          | -                                           |
 
 ## Implication
 

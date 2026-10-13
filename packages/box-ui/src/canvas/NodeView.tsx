@@ -5,18 +5,18 @@
 // visibly broken (I-7). Side handles appear on hover/selected (tldraw
 // pattern): drag from one to start a connection draft.
 
-import type { CanvasNode, Side } from '@box/core';
-import { baseName } from '@box/core';
-import { useRef } from 'react';
-import type { Camera } from './camera.js';
-import { screenToWorld } from './camera.js';
+import type { CanvasNode, Side } from "@box/core";
+import { baseName } from "@box/core";
+import { useRef } from "react";
+import type { Camera } from "./camera.js";
+import { screenToWorld } from "./camera.js";
 
-const SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
+const SIDES: Side[] = ["top", "right", "bottom", "left"];
 const HANDLE_POS: Record<Side, React.CSSProperties> = {
-  top: { left: '50%', top: 0 },
-  right: { left: '100%', top: '50%' },
-  bottom: { left: '50%', top: '100%' },
-  left: { left: 0, top: '50%' },
+  top: { left: "50%", top: 0 },
+  right: { left: "100%", top: "50%" },
+  bottom: { left: "50%", top: "100%" },
+  left: { left: 0, top: "50%" },
 };
 
 export interface NodeViewProps {
@@ -35,20 +35,25 @@ export interface NodeViewProps {
 
 function label(n: CanvasNode): string {
   switch (n.type) {
-    case 'text':
+    case "text":
       return n.text.length > 240 ? `${n.text.slice(0, 240)}…` : n.text;
-    case 'file':
+    case "file":
       return baseName(n.file);
-    case 'link':
+    case "link":
       return n.url;
-    case 'group':
-      return n.label ?? '';
+    case "group":
+      return n.label ?? "";
   }
 }
 
 export function NodeView(props: NodeViewProps) {
   const { node, camera } = props;
-  const drag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{
+    px: number;
+    py: number;
+    ox: number;
+    oy: number;
+  } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
@@ -61,8 +66,16 @@ export function NodeView(props: NodeViewProps) {
   const onPointerMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
     const a = screenToWorld(camera, 0, 0);
-    const b = screenToWorld(camera, e.clientX - drag.current.px, e.clientY - drag.current.py);
-    props.onMove(node.id, Math.round(drag.current.ox + b.x - a.x), Math.round(drag.current.oy + b.y - a.y));
+    const b = screenToWorld(
+      camera,
+      e.clientX - drag.current.px,
+      e.clientY - drag.current.py,
+    );
+    props.onMove(
+      node.id,
+      Math.round(drag.current.ox + b.x - a.x),
+      Math.round(drag.current.oy + b.y - a.y),
+    );
   };
 
   const onPointerUp = () => {
@@ -73,9 +86,13 @@ export function NodeView(props: NodeViewProps) {
   };
 
   const worldOf = (e: React.PointerEvent) => {
-    const vp = (e.currentTarget as Element).closest('.canvas-viewport');
+    const vp = (e.currentTarget as Element).closest(".canvas-viewport");
     const r = vp?.getBoundingClientRect();
-    return screenToWorld(camera, e.clientX - (r?.left ?? 0), e.clientY - (r?.top ?? 0));
+    return screenToWorld(
+      camera,
+      e.clientX - (r?.left ?? 0),
+      e.clientY - (r?.top ?? 0),
+    );
   };
 
   const handleDown = (side: Side) => (e: React.PointerEvent) => {
@@ -93,26 +110,31 @@ export function NodeView(props: NodeViewProps) {
   };
 
   const cls = [
-    'node',
+    "node",
     `node-${node.type}`,
-    props.selected ? 'selected' : '',
-    props.broken ? 'broken' : '',
-    props.dropTarget ? 'drop-target' : '',
+    props.selected ? "selected" : "",
+    props.broken ? "broken" : "",
+    props.dropTarget ? "drop-target" : "",
   ]
     .filter(Boolean)
-    .join(' ');
+    .join(" ");
 
   return (
     <div
       className={cls}
       data-node-id={node.id}
-      style={{ left: node.x, top: node.y, width: node.width, height: node.height }}
+      style={{
+        left: node.x,
+        top: node.y,
+        width: node.width,
+        height: node.height,
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => (drag.current = null)}
     >
-      {node.type === 'file' && <span className="node-kind">file</span>}
+      {node.type === "file" && <span className="node-kind">file</span>}
       {props.broken && <span className="node-flag">missing</span>}
       <div className="node-label">{label(node)}</div>
       {SIDES.map((side) => (

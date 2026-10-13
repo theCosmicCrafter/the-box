@@ -5,14 +5,14 @@
 // and the edge-draft state machine (handle drag -> live preview ->
 // drop on target -> onCreateEdge with the sides actually used).
 
-import type { Board, CanvasNode, Side } from '@box/core';
-import { useEffect, useMemo, useState } from 'react';
-import type { DraftEdge } from './EdgeLayer.js';
-import { EdgeLayer, anchor } from './EdgeLayer.js';
-import { NodeView } from './NodeView.js';
-import { Viewport } from './Viewport.js';
-import type { Camera } from './camera.js';
-import { DEFAULT_CAMERA } from './camera.js';
+import type { Board, CanvasNode, Side } from "@box/core";
+import { useEffect, useMemo, useState } from "react";
+import type { DraftEdge } from "./EdgeLayer.js";
+import { EdgeLayer, anchor } from "./EdgeLayer.js";
+import { NodeView } from "./NodeView.js";
+import { Viewport } from "./Viewport.js";
+import type { Camera } from "./camera.js";
+import { DEFAULT_CAMERA } from "./camera.js";
 
 export interface BoardViewProps {
   board: Board;
@@ -20,7 +20,12 @@ export interface BoardViewProps {
   brokenEdges?: Set<string>;
   onMove?: (id: string, x: number, y: number) => void;
   onCommit?: () => void;
-  onCreateEdge?: (fromNodeId: string, toNodeId: string, fromSide: Side, toSide: Side) => void;
+  onCreateEdge?: (
+    fromNodeId: string,
+    toNodeId: string,
+    fromSide: Side,
+    toSide: Side,
+  ) => void;
   onDeleteEdge?: (edgeId: string) => void;
 }
 
@@ -38,7 +43,13 @@ function sideToward(node: CanvasNode, wx: number, wy: number): Side {
   const cy = node.y + node.height / 2;
   const dx = wx - cx;
   const dy = wy - cy;
-  return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'bottom' : 'top';
+  return Math.abs(dx) > Math.abs(dy)
+    ? dx > 0
+      ? "right"
+      : "left"
+    : dy > 0
+      ? "bottom"
+      : "top";
 }
 
 export function BoardView(props: BoardViewProps) {
@@ -50,29 +61,37 @@ export function BoardView(props: BoardViewProps) {
   const brokenEdges = useMemo(() => {
     if (props.brokenEdges) return props.brokenEdges;
     const ids = new Set(props.board.nodes.map((n) => n.id));
-    return new Set(props.board.edges.filter((e) => !ids.has(e.fromNode) || !ids.has(e.toNode)).map((e) => e.id));
+    return new Set(
+      props.board.edges
+        .filter((e) => !ids.has(e.fromNode) || !ids.has(e.toNode))
+        .map((e) => e.id),
+    );
   }, [props.board, props.brokenEdges]);
 
   // Edge delete + escape, only while a board view is mounted.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         setSelected(null);
         setSelectedEdge(null);
         setDraft(null);
-      } else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedEdge) {
+      } else if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        selectedEdge
+      ) {
         props.onDeleteEdge?.(selectedEdge);
         setSelectedEdge(null);
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [selectedEdge, props.onDeleteEdge]);
 
   const nodeAt = (wx: number, wy: number): CanvasNode | null => {
     for (let i = props.board.nodes.length - 1; i >= 0; i--) {
       const n = props.board.nodes[i]!;
-      if (wx >= n.x && wx <= n.x + n.width && wy >= n.y && wy <= n.y + n.height) return n;
+      if (wx >= n.x && wx <= n.x + n.width && wy >= n.y && wy <= n.y + n.height)
+        return n;
     }
     return null;
   };
@@ -89,7 +108,11 @@ export function BoardView(props: BoardViewProps) {
         return { from: a, to: ta, overTarget: true };
       }
     }
-    return { from: a, to: { x: draft.x, y: draft.y, nx: 0, ny: 0 }, overTarget: false };
+    return {
+      from: a,
+      to: { x: draft.x, y: draft.y, nx: 0, ny: 0 },
+      overTarget: false,
+    };
   }, [draft, props.board]);
 
   return (
@@ -127,20 +150,36 @@ export function BoardView(props: BoardViewProps) {
           onCommit={props.onCommit ?? (() => {})}
           onDraftStart={(nodeId, side) => {
             const w = anchor(n, side);
-            setDraft({ fromId: nodeId, fromSide: side, x: w.x, y: w.y, overId: null });
+            setDraft({
+              fromId: nodeId,
+              fromSide: side,
+              x: w.x,
+              y: w.y,
+              overId: null,
+            });
           }}
           onDraftMove={(wx, wy) => {
             setDraft((d) => {
               if (!d) return d;
               const over = nodeAt(wx, wy);
-              return { ...d, x: wx, y: wy, overId: over && over.id !== d.fromId ? over.id : null };
+              return {
+                ...d,
+                x: wx,
+                y: wy,
+                overId: over && over.id !== d.fromId ? over.id : null,
+              };
             });
           }}
           onDraftEnd={(wx, wy) => {
             if (draft) {
               const over = nodeAt(wx, wy);
               if (over && over.id !== draft.fromId) {
-                props.onCreateEdge?.(draft.fromId, over.id, draft.fromSide, sideToward(over, wx, wy));
+                props.onCreateEdge?.(
+                  draft.fromId,
+                  over.id,
+                  draft.fromSide,
+                  sideToward(over, wx, wy),
+                );
               }
             }
             setDraft(null);

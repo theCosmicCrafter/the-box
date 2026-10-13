@@ -18,11 +18,19 @@ export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, z: 1 };
 const clamp = (v: number, lo: number, hi: number): number =>
   v < lo ? lo : v > hi ? hi : v;
 
-export function screenToWorld(cam: Camera, sx: number, sy: number): { x: number; y: number } {
+export function screenToWorld(
+  cam: Camera,
+  sx: number,
+  sy: number,
+): { x: number; y: number } {
   return { x: sx / cam.z + cam.x, y: sy / cam.z + cam.y };
 }
 
-export function worldToScreen(cam: Camera, wx: number, wy: number): { x: number; y: number } {
+export function worldToScreen(
+  cam: Camera,
+  wx: number,
+  wy: number,
+): { x: number; y: number } {
   return { x: (wx - cam.x) * cam.z, y: (wy - cam.y) * cam.z };
 }
 
@@ -32,7 +40,12 @@ export function panBy(cam: Camera, dxScreen: number, dyScreen: number): Camera {
 }
 
 /** Zoom keeping the world point under (sx, sy) fixed on screen. */
-export function zoomAt(cam: Camera, sx: number, sy: number, factor: number): Camera {
+export function zoomAt(
+  cam: Camera,
+  sx: number,
+  sy: number,
+  factor: number,
+): Camera {
   const z = clamp(cam.z * factor, MIN_ZOOM, MAX_ZOOM);
   if (z === cam.z) return cam;
   const w = screenToWorld(cam, sx, sy);
@@ -44,12 +57,12 @@ export function zoomToFit(
   rect: { x: number; y: number; w: number; h: number },
   vw: number,
   vh: number,
-  padding = 64
+  padding = 64,
 ): Camera {
   const z = clamp(
     Math.min((vw - padding * 2) / rect.w, (vh - padding * 2) / rect.h),
     MIN_ZOOM,
-    MAX_ZOOM
+    MAX_ZOOM,
   );
   return {
     x: rect.x + rect.w / 2 - vw / (2 * z),

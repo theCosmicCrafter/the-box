@@ -3,14 +3,17 @@
 // Rule: classify by EXISTENCE after a quiet window, never by event type
 // (probe R-2 verified deletes and renames both arrive as 'rename').
 
-import type { Delta } from '../model/types.js';
-import type { FileEntry } from '../vault/vault.js';
+import type { Delta } from "../model/types.js";
+import type { FileEntry } from "../vault/vault.js";
 
 export interface PrevState {
   files: Map<string, { size: number; sha256?: string }>;
 }
 
-export function classifyFileSet(before: PrevState, after: FileEntry[]): Delta[] {
+export function classifyFileSet(
+  before: PrevState,
+  after: FileEntry[],
+): Delta[] {
   const deltas: Delta[] = [];
   const afterMap = new Map(after.map((e) => [e.path, e]));
 
@@ -24,10 +27,14 @@ export function classifyFileSet(before: PrevState, after: FileEntry[]): Delta[] 
     const prev = before.files.get(e.path);
     if (prev === undefined) {
       created.push(e);
-    } else if (prev.sha256 !== undefined && e.sha256 !== undefined && prev.sha256 !== e.sha256) {
-      deltas.push({ kind: 'modified', path: e.path });
+    } else if (
+      prev.sha256 !== undefined &&
+      e.sha256 !== undefined &&
+      prev.sha256 !== e.sha256
+    ) {
+      deltas.push({ kind: "modified", path: e.path });
     } else if (prev.size !== e.size) {
-      deltas.push({ kind: 'modified', path: e.path });
+      deltas.push({ kind: "modified", path: e.path });
     }
   }
 
@@ -47,25 +54,25 @@ export function classifyFileSet(before: PrevState, after: FileEntry[]): Delta[] 
           : prev?.size === c.size),
     );
     if (match !== undefined && prev !== undefined) {
-      deltas.push({ kind: 'renamed', path: oldPath, to: match.path });
+      deltas.push({ kind: "renamed", path: oldPath, to: match.path });
       consumed.add(match.path);
     } else {
-      deltas.push({ kind: 'deleted', path: oldPath });
+      deltas.push({ kind: "deleted", path: oldPath });
     }
   }
   for (const c of created) {
-    if (!consumed.has(c.path)) deltas.push({ kind: 'created', path: c.path });
+    if (!consumed.has(c.path)) deltas.push({ kind: "created", path: c.path });
   }
   return deltas;
 }
 
 /** Path classification for routing deltas - §5.2 rule 3. */
-export type Route = 'board' | 'tombstone' | 'link-note' | 'ink' | 'object';
+export type Route = "board" | "tombstone" | "link-note" | "ink" | "object";
 
 export function routePath(path: string): Route {
-  if (path === '.box/tombstones.json') return 'tombstone';
-  if (path.startsWith('.box/') && path.endsWith('.box.canvas')) return 'board';
-  if (/link-[0-9a-f]{16}\.md$/.test(path)) return 'link-note';
-  if (path.endsWith('.ink.svg')) return 'ink';
-  return 'object';
+  if (path === ".box/tombstones.json") return "tombstone";
+  if (path.startsWith(".box/") && path.endsWith(".box.canvas")) return "board";
+  if (/link-[0-9a-f]{16}\.md$/.test(path)) return "link-note";
+  if (path.endsWith(".ink.svg")) return "ink";
+  return "object";
 }

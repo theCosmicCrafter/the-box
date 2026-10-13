@@ -72,12 +72,12 @@ All other top-level keys are preserved verbatim on rewrite (forward tolerance).
 
 ### 2.3 `type: "file"` node
 
-| field       | type   | required | default | constraints                                                                                                                                      | notes                                         |
+| field | type | required | default | constraints | notes |
 | ----------- | ------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- | ----- | ----- | ------------------------------------------------ |
-| `file`      | string | yes      | -       | PathRel: relative, forward slashes, no `..`, no drive letter, no `<>":\|?*` or control chars, no trailing `/`, no segment ending in `.` or space | workspace-relative object path                |
-| `subpath`   | string | no       | -       | starts with `#`                                                                                                                                  | heading/block link, spec 1.0                  |
-| `box-ink`   | string | no       | -       | PathRel, must end `.ink.svg`                                                                                                                     | ink sidecar path; convention `<file>.ink.svg` |
-| `box-media` | object | no       | -       | `{kind: image                                                                                                                                    | video                                         | audio | doc}` | render hint; inferred from extension when absent |
+| `file` | string | yes | - | PathRel: relative, forward slashes, no `..`, no drive letter, no `<>":\|?*` or control chars, no trailing `/`, no segment ending in `.` or space | workspace-relative object path |
+| `subpath` | string | no | - | starts with `#` | heading/block link, spec 1.0 |
+| `box-ink` | string | no | - | PathRel, must end `.ink.svg` | ink sidecar path; convention `<file>.ink.svg` |
+| `box-media` | object | no | - | `{kind: image                                                                                                                                    | video                                         | audio | doc}` | render hint; inferred from extension when absent |
 
 ### 2.4 `type: "text"` node
 

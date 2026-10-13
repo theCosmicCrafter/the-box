@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 
-import { createRoot } from 'react-dom/client';
-import { App } from './App.js';
-import './styles.css';
+import { createRoot } from "react-dom/client";
+import { App } from "./App.js";
+import "./styles.css";
 
-const el = document.getElementById('root');
+const el = document.getElementById("root");
 if (el !== null) {
   createRoot(el).render(<App />);
 }

@@ -3,21 +3,39 @@
 // .box.canvas opens the BoardView; node drags persist through the
 // atomic-write IPC on commit.
 
-import type { Side, WritePlan } from '@box/core';
-import { createEdgePlan, deleteEdgePlan, parseBoard, serializeBoard } from '@box/core';
-import type { WorkspaceFile } from '@box/ui';
-import { BoardView, FileList, useBoxStore } from '@box/ui';
-import { useMemo } from 'react';
+import type { Side, WritePlan } from "@box/core";
+import {
+  createEdgePlan,
+  deleteEdgePlan,
+  parseBoard,
+  serializeBoard,
+} from "@box/core";
+import type { WorkspaceFile } from "@box/ui";
+import { BoardView, FileList, useBoxStore } from "@box/ui";
+import { useMemo } from "react";
 
 declare global {
   interface Window {
     box?: {
-      openWorkspace: () => Promise<{ root: string; files: WorkspaceFile[] } | null>;
+      openWorkspace: () => Promise<{
+        root: string;
+        files: WorkspaceFile[];
+      } | null>;
       rescan: (root: string) => Promise<WorkspaceFile[]>;
       readFile: (root: string, rel: string) => Promise<string | null>;
-      writeFileAtomic: (root: string, rel: string, content: string) => Promise<{ ok: boolean; error?: string }>;
-      trashFile: (root: string, rel: string) => Promise<{ ok: boolean; error?: string }>;
-      appendTombstone: (root: string, edgeId: string) => Promise<{ ok: boolean; error?: string }>;
+      writeFileAtomic: (
+        root: string,
+        rel: string,
+        content: string,
+      ) => Promise<{ ok: boolean; error?: string }>;
+      trashFile: (
+        root: string,
+        rel: string,
+      ) => Promise<{ ok: boolean; error?: string }>;
+      appendTombstone: (
+        root: string,
+        edgeId: string,
+      ) => Promise<{ ok: boolean; error?: string }>;
     };
   }
 }
@@ -26,15 +44,18 @@ declare global {
 async function applyPlan(root: string, plan: WritePlan): Promise<string[]> {
   const errors: string[] = [];
   const api = window.box;
-  if (!api) return ['no bridge'];
+  if (!api) return ["no bridge"];
   for (const step of plan.steps) {
     const r =
-      step.op === 'write-atomic'
+      step.op === "write-atomic"
         ? await api.writeFileAtomic(root, step.path, step.content)
-        : step.op === 'trash'
+        : step.op === "trash"
           ? await api.trashFile(root, step.path)
           : await api.appendTombstone(root, step.edgeId);
-    if (!r.ok) errors.push(`${step.op} ${'path' in step ? step.path : step.edgeId}: ${r.error}`);
+    if (!r.ok)
+      errors.push(
+        `${step.op} ${"path" in step ? step.path : step.edgeId}: ${r.error}`,
+      );
   }
   return errors;
 }
@@ -77,14 +98,26 @@ export function App() {
   const saveBoard = async () => {
     const b = useBoxStore.getState().board;
     if (!workspaceRoot || !b || !boardPath || !window.box) return;
-    await window.box.writeFileAtomic(workspaceRoot, boardPath, serializeBoard(b));
+    await window.box.writeFileAtomic(
+      workspaceRoot,
+      boardPath,
+      serializeBoard(b),
+    );
   };
 
   // I-1: edge draw -> link note written first, board second.
-  const createEdge = async (fromId: string, toId: string, fromSide: Side, toSide: Side) => {
+  const createEdge = async (
+    fromId: string,
+    toId: string,
+    fromSide: Side,
+    toSide: Side,
+  ) => {
     const b = useBoxStore.getState().board;
     if (!workspaceRoot || !b || !boardPath) return;
-    const { plan, edge } = createEdgePlan(b, boardPath, fromId, toId, { fromSide, toSide });
+    const { plan, edge } = createEdgePlan(b, boardPath, fromId, toId, {
+      fromSide,
+      toSide,
+    });
     const errors = await applyPlan(workspaceRoot, plan);
     if (errors.length === 0) {
       addEdge(edge);
@@ -98,7 +131,10 @@ export function App() {
   const deleteEdge = async (edgeId: string) => {
     const b = useBoxStore.getState().board;
     if (!workspaceRoot || !b || !boardPath) return;
-    const errors = await applyPlan(workspaceRoot, deleteEdgePlan(b, boardPath, edgeId));
+    const errors = await applyPlan(
+      workspaceRoot,
+      deleteEdgePlan(b, boardPath, edgeId),
+    );
     if (errors.length === 0) {
       removeEdge(edgeId);
       void rescan();
@@ -112,7 +148,7 @@ export function App() {
     const have = new Set(files.map((f) => f.path));
     const missing = new Set<string>();
     for (const n of board?.nodes ?? []) {
-      if (n.type === 'file' && !have.has(n.file)) missing.add(n.id);
+      if (n.type === "file" && !have.has(n.file)) missing.add(n.id);
     }
     return missing;
   }, [board, files]);
@@ -123,9 +159,15 @@ export function App() {
         <div className="board-bar">
           <button onClick={closeBoard}>back</button>
           <code>{boardPath}</code>
-          {boardProblems.length > 0 && <span className="warn">{boardProblems.length} problems</span>}
-          {brokenNodes.size > 0 && <span className="warn">{brokenNodes.size} missing files</span>}
-          <span className="hint">wheel: pan / ctrl+wheel: zoom / drag nodes to move</span>
+          {boardProblems.length > 0 && (
+            <span className="warn">{boardProblems.length} problems</span>
+          )}
+          {brokenNodes.size > 0 && (
+            <span className="warn">{brokenNodes.size} missing files</span>
+          )}
+          <span className="hint">
+            wheel: pan / ctrl+wheel: zoom / drag nodes to move
+          </span>
         </div>
         <BoardView
           board={board}
@@ -143,7 +185,9 @@ export function App() {
     <main className="shell">
       <header>
         <h1>The Box</h1>
-        <p className="tagline">Objects are files. Arrows are notes. Edits round-trip.</p>
+        <p className="tagline">
+          Objects are files. Arrows are notes. Edits round-trip.
+        </p>
       </header>
       {workspaceRoot === null ? (
         <div className="welcome">

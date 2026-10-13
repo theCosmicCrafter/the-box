@@ -1,10 +1,10 @@
 # T-6 + T-7 - Allume (née Muse) - merged targets
 
-| | |
-|---|---|
-| **Method** | first-party sources: allume.com, App Store listing, allume.com/updates, museapp.com memos |
-| **Verified** | 2026-10-13 |
-| **Status** | Complete (external docs; binary uninspectable - Apple-only, verified) |
+|              |                                                                                           |
+| ------------ | ----------------------------------------------------------------------------------------- |
+| **Method**   | first-party sources: allume.com, App Store listing, allume.com/updates, museapp.com memos |
+| **Verified** | 2026-10-13                                                                                |
+| **Status**   | Complete (external docs; binary uninspectable - Apple-only, verified)                     |
 
 ## Identity - verified
 
@@ -37,11 +37,11 @@ on this machine - a platform limitation, not an oversight.
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
+| adopt                                                                                                  | reject                        |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------- |
 | Nested boards (board-as-node inside another board) - matches our "board is a file, file can be a node" | zooming-only navigation model |
-| Excerpt-with-source-context concept (annotated crops linking back) | Apple-only silo |
-| In-app agent surface (their MCP server) - second vendor picking this pattern, after Heptabase's CLI | - |
+| Excerpt-with-source-context concept (annotated crops linking back)                                     | Apple-only silo               |
+| In-app agent surface (their MCP server) - second vendor picking this pattern, after Heptabase's CLI    | -                             |
 
 ## Implication
 
