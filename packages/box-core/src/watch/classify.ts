@@ -7,7 +7,7 @@ import type { Delta } from "../model/types.js";
 import type { FileEntry } from "../vault/vault.js";
 
 export interface PrevState {
-  files: Map<string, { size: number; sha256?: string }>;
+  files: Map<string, { size: number; mtime?: number; sha256?: string }>;
 }
 
 export function classifyFileSet(
@@ -28,12 +28,14 @@ export function classifyFileSet(
     if (prev === undefined) {
       created.push(e);
     } else if (
-      prev.sha256 !== undefined &&
-      e.sha256 !== undefined &&
-      prev.sha256 !== e.sha256
+      (prev.sha256 !== undefined &&
+        e.sha256 !== undefined &&
+        prev.sha256 !== e.sha256) ||
+      prev.size !== e.size ||
+      (prev.mtime !== undefined &&
+        e.mtime !== undefined &&
+        prev.mtime !== e.mtime)
     ) {
-      deltas.push({ kind: "modified", path: e.path });
-    } else if (prev.size !== e.size) {
       deltas.push({ kind: "modified", path: e.path });
     }
   }
@@ -46,12 +48,16 @@ export function classifyFileSet(
   const consumed = new Set<string>();
   for (const oldPath of deleted) {
     const prev = before.files.get(oldPath);
+    // Rename pairing: sha beats (size+mtime) beats size-only. A real rename
+    // preserves content AND mtime; a same-size create almost never shares it.
     const match = created.find(
       (c) =>
         !consumed.has(c.path) &&
         (prev?.sha256 !== undefined && c.sha256 !== undefined
           ? prev.sha256 === c.sha256
-          : prev?.size === c.size),
+          : prev?.mtime !== undefined && c.mtime !== undefined
+            ? prev.size === c.size && prev.mtime === c.mtime
+            : prev?.size === c.size),
     );
     if (match !== undefined && prev !== undefined) {
       deltas.push({ kind: "renamed", path: oldPath, to: match.path });

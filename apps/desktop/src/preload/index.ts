@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 // Preload bridge - the renderer's only handle on the platform.
 
+import type { Delta, ProblemItem } from "@box/core";
 import { contextBridge, ipcRenderer } from "electron";
 
 export interface WorkspaceFile {
@@ -14,11 +15,31 @@ export interface WorkspaceOpenResult {
   files: WorkspaceFile[];
 }
 
+/** Pushed on every watcher reconcile pass that changed anything. */
+export interface WorkspaceChangedEvent {
+  files: WorkspaceFile[];
+  deltas: Delta[];
+  changedPaths: string[];
+  problems: ProblemItem[];
+  brokenNodes: string[];
+  brokenEdges: string[];
+}
+
 const api = {
   openWorkspace: (): Promise<WorkspaceOpenResult | null> =>
     ipcRenderer.invoke("workspace:open"),
   rescan: (root: string): Promise<WorkspaceFile[]> =>
     ipcRenderer.invoke("workspace:rescan", root),
+  watchWorkspace: (root: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("workspace:watch", root),
+  onWorkspaceChanged: (
+    cb: (e: WorkspaceChangedEvent) => void,
+  ): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, p: WorkspaceChangedEvent) =>
+      cb(p);
+    ipcRenderer.on("workspace:changed", handler);
+    return () => ipcRenderer.removeListener("workspace:changed", handler);
+  },
   readFile: (root: string, rel: string): Promise<string | null> =>
     ipcRenderer.invoke("fs:read", root, rel),
   writeFileAtomic: (

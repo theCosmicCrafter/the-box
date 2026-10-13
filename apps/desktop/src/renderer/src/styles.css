@@ -288,3 +288,109 @@ button:hover {
   background: #7ad08d;
   transform: scale(1.3);
 }
+
+/* ---- board body: canvas + note panel side by side ---- */
+
+.board-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.board-body .canvas-viewport {
+  flex: 1;
+}
+
+.note-panel {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #232833;
+  background: #14171d;
+}
+
+.note-panel-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #232833;
+}
+
+.note-panel-head code {
+  flex: 1;
+  color: #9aa3b2;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-panel-head .warn {
+  color: #e0a34a;
+  font-size: 11px;
+}
+
+.note-panel-head button {
+  background: none;
+  border: 0;
+  color: #7a8291;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.note-panel-fm {
+  margin: 0;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.note-panel-fm dt {
+  color: #4d5665;
+}
+
+.note-panel-fm dd {
+  margin: 0;
+  color: #c6cdd9;
+  overflow-wrap: break-word;
+}
+
+.note-panel-fm input {
+  width: 100%;
+  box-sizing: border-box;
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 4px;
+  color: #d8dce4;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.note-panel-body {
+  flex: 1;
+  margin: 0 12px;
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  color: #d8dce4;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: none;
+}
+
+.note-panel-foot {
+  padding: 10px 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.note-panel-foot button:disabled {
+  background: #2a303c;
+  color: #4d5665;
+  cursor: default;
+}

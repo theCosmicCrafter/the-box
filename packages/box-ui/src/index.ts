@@ -5,4 +5,5 @@ export * from "./canvas/EdgeLayer.js";
 export * from "./canvas/NodeView.js";
 export * from "./canvas/Viewport.js";
 export * from "./FileList.js";
+export * from "./NotePanel.js";
 export * from "./store.js";

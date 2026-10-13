@@ -16,8 +16,8 @@ import { DEFAULT_CAMERA } from "./camera.js";
 
 export interface BoardViewProps {
   board: Board;
-  brokenNodes?: Set<string>;
-  brokenEdges?: Set<string>;
+  brokenNodes?: Set<string> | undefined;
+  brokenEdges?: Set<string> | undefined;
   onMove?: (id: string, x: number, y: number) => void;
   onCommit?: () => void;
   onCreateEdge?: (
@@ -27,6 +27,8 @@ export interface BoardViewProps {
     toSide: Side,
   ) => void;
   onDeleteEdge?: (edgeId: string) => void;
+  /** Fires on every edge-selection change (id, or null when cleared). */
+  onSelectEdge?: (edgeId: string | null) => void;
 }
 
 interface Draft {
@@ -68,19 +70,25 @@ export function BoardView(props: BoardViewProps) {
     );
   }, [props.board, props.brokenEdges]);
 
+  // Single funnel so every selection change reports outward (note panel).
+  const selectEdge = (id: string | null) => {
+    setSelectedEdge(id);
+    props.onSelectEdge?.(id);
+  };
+
   // Edge delete + escape, only while a board view is mounted.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setSelected(null);
-        setSelectedEdge(null);
+        selectEdge(null);
         setDraft(null);
       } else if (
         (e.key === "Delete" || e.key === "Backspace") &&
         selectedEdge
       ) {
         props.onDeleteEdge?.(selectedEdge);
-        setSelectedEdge(null);
+        selectEdge(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -121,7 +129,7 @@ export function BoardView(props: BoardViewProps) {
       onCameraChange={setCam}
       onBackgroundClick={() => {
         setSelected(null);
-        setSelectedEdge(null);
+        selectEdge(null);
       }}
     >
       <EdgeLayer
@@ -129,7 +137,7 @@ export function BoardView(props: BoardViewProps) {
         brokenEdges={brokenEdges}
         selectedId={selectedEdge}
         onSelect={(id) => {
-          setSelectedEdge(id);
+          selectEdge(id);
           setSelected(null);
         }}
         draft={draftGeom}
@@ -144,7 +152,7 @@ export function BoardView(props: BoardViewProps) {
           dropTarget={draft?.overId === n.id}
           onSelect={(id) => {
             setSelected(id);
-            setSelectedEdge(null);
+            selectEdge(null);
           }}
           onMove={props.onMove ?? (() => {})}
           onCommit={props.onCommit ?? (() => {})}

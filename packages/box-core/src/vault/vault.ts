@@ -6,6 +6,7 @@
 export interface FileEntry {
   path: string; // PathRel
   size: number;
+  mtime?: number; // ms epoch; same-size edit + rename detection signal
   sha256?: string; // computed lazily when rename detection needs it
 }
 
