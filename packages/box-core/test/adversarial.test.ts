@@ -568,6 +568,41 @@ describe("hostile content shapes", () => {
     expect(re.value?.frontmatter["injected"]).toBeUndefined();
   });
 
+  it("serializeLinkNote must not touch Node globals (webview environment)", () => {
+    // Regression for the Tauri migration: gray-matter.stringify called
+    // Buffer.from(), which does not exist in WebView2 - every frontmatter
+    // write (edge link notes, note bodies) silently died in the live app
+    // while Node-based tests kept passing.
+    const note: LinkNote = {
+      path: "link-7f3a9c2b1d4e5f6a.md",
+      frontmatter: {
+        "box-edge": "7f3a9c2b1d4e5f6a",
+        "box-format": "box.link/1",
+        from: "n-aaa111",
+        to: "n-bbb222",
+        board: "main.box.canvas",
+        "from-file": "a.png",
+        "to-file": "b.png",
+        type: "relates-to",
+        created: "2026-01-01T00:00:00.000Z",
+        "custom key: #": "value: not yaml",
+      },
+      body: "the arrow means something",
+    };
+    const saved = globalThis.Buffer;
+    // @ts-expect-error - simulating the webview: Buffer must not be needed
+    delete globalThis.Buffer;
+    try {
+      const out = serializeLinkNote(note);
+      const re = parseLinkNote(out, note.path);
+      expect(re.problems).toHaveLength(0);
+      expect(re.value?.frontmatter).toEqual(note.frontmatter);
+      expect(re.value?.body).toBe(note.body);
+    } finally {
+      globalThis.Buffer = saved;
+    }
+  });
+
   it("giant body / giant board values don't hang the serializers", () => {
     const note: LinkNote = {
       path: "link-7f3a9c2b1d4e5f6a.md",

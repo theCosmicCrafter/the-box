@@ -23,11 +23,14 @@ import {
 } from "./previews.js";
 
 const SIDES: Side[] = ["top", "right", "bottom", "left"];
+// Handles sit fully inside the node edge: .node is overflow:hidden, so a
+// border-straddling handle would clip its outer half and leave a ~5px hit
+// sliver. Inset dots stay whole and grabbable.
 const HANDLE_POS: Record<Side, React.CSSProperties> = {
-  top: { left: "50%", top: 0 },
-  right: { left: "100%", top: "50%" },
-  bottom: { left: "50%", top: "100%" },
-  left: { left: 0, top: "50%" },
+  top: { left: "50%", top: "3px", marginLeft: "-8px" },
+  right: { left: "calc(100% - 19px)", top: "50%", marginTop: "-8px" },
+  bottom: { left: "50%", top: "calc(100% - 19px)", marginLeft: "-8px" },
+  left: { left: "3px", top: "50%", marginTop: "-8px" },
 };
 
 const MIN_NODE = 40;

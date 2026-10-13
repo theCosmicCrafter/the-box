@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 // Link-note parse/serialize - DATA-MODEL §3.
-// Frontmatter is YAML between --- fences; parsed via gray-matter (surveyed
-// slot, MIT). Unknown frontmatter keys are preserved verbatim on rewrite
-// (user keys are theirs; box-* keys are app-managed).
+// Frontmatter is YAML between --- fences. Handled in-house: gray-matter
+// routes both directions through Node's Buffer, which does not exist in the
+// WebView2 renderer - box-core depends on no Node globals. Unknown frontmatter
+// keys are preserved verbatim on rewrite (user keys are theirs; box-* keys
+// are app-managed).
 
-import matter from "gray-matter";
+import { load as loadYaml } from "js-yaml";
 import type { ParseResult } from "./board.js";
 import { edgeIdFromNoteName, isEdgeId, isNodeId } from "./ids.js";
 import { baseName } from "./paths.js";
@@ -23,24 +25,52 @@ const CANONICAL_ORDER = [
   "created",
 ] as const;
 
+/**
+ * Split `---`-fenced frontmatter from body. Tolerates BOM and CRLF. Returns
+ * null when there is no fence pair - the caller reports it as malformed.
+ */
+function splitFrontmatter(
+  raw: string,
+): { frontmatter: string; content: string } | null {
+  const text = raw.startsWith("﻿") ? raw.slice(1) : raw;
+  const lines = text.split("\n");
+  if (lines[0] === undefined || lines[0].trim() !== "---") return null;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]!.trimEnd() === "---") {
+      return {
+        frontmatter: lines.slice(1, i).join("\n"),
+        content: lines.slice(i + 1).join("\n"),
+      };
+    }
+  }
+  return null;
+}
+
 /** Total parser - bad frontmatter is a problem item, never a throw. */
 export function parseLinkNote(
   raw: string,
   path: string,
 ): ParseResult<LinkNote> {
   const problems: ProblemItem[] = [];
-  let parsed: matter.GrayMatterFile<string>;
-  try {
-    parsed = matter(raw);
-  } catch {
-    return {
-      value: null,
-      problems: [
-        { kind: "malformed-note", path, detail: "unparseable frontmatter" },
-      ],
-    };
+  const split = splitFrontmatter(raw);
+  let data: unknown;
+  if (split !== null) {
+    try {
+      data = loadYaml(split.frontmatter);
+    } catch {
+      return {
+        value: null,
+        problems: [
+          { kind: "malformed-note", path, detail: "unparseable frontmatter" },
+        ],
+      };
+    }
   }
-  const fm = parsed.data as Record<string, unknown>;
+  const fm = (
+    data !== null && typeof data === "object" && !Array.isArray(data)
+      ? data
+      : {}
+  ) as Record<string, unknown>;
 
   const edgeId = fm["box-edge"];
   if (typeof edgeId !== "string" || !isEdgeId(edgeId)) {
@@ -104,7 +134,7 @@ export function parseLinkNote(
       // Strip the serializer's framing newlines exactly: one after the
       // fence, one before EOF. Both are write-side artifacts - without the
       // trailing strip every save-load cycle grows bodies by a newline.
-      body: parsed.content.replace(/^\r?\n/, "").replace(/\n$/, ""),
+      body: (split?.content ?? "").replace(/^\r?\n/, "").replace(/\r?\n$/, ""),
     },
     problems,
   };
@@ -113,7 +143,44 @@ export function parseLinkNote(
 /**
  * Deterministic serializer: required keys first in canonical order, then any
  * unknown/user keys in their existing order, then body.
+ *
+ * Emitted by hand - gray-matter.stringify routes through its toFile helper,
+ * which calls Buffer.from(); Buffer is a Node global and does not exist in the
+ * Tauri WebView2 renderer. box-core must not depend on Node globals.
  */
+const PLAIN_KEY = /^[A-Za-z0-9_-]+$/;
+// Bare scalars: start letter/underscore (never a digit - keeps numbers and
+// ISO dates quoted so js-yaml can't reinterpret them), no YAML indicator
+// characters inside, no trailing space.
+const PLAIN_SCALAR = /^[A-Za-z_](?:[A-Za-z0-9_ ./-]*[A-Za-z0-9_./-])?$/;
+const RESERVED = new Set([
+  "true",
+  "false",
+  "yes",
+  "no",
+  "y",
+  "n",
+  "on",
+  "off",
+  "null",
+  "~",
+  "",
+]);
+
+// YAML 1.2 admits JSON as a subset, so JSON.stringify is a correct fallback
+// for every non-plain value (strings, arrays, objects, null).
+function yamlScalar(v: unknown): string {
+  if (v instanceof Date) return JSON.stringify(v.toISOString());
+  if (
+    typeof v === "string" &&
+    PLAIN_SCALAR.test(v) &&
+    !RESERVED.has(v.toLowerCase())
+  )
+    return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return JSON.stringify(v);
+}
+
 export function serializeLinkNote(note: LinkNote): string {
   const fm = note.frontmatter as Record<string, unknown>;
   const ordered: Record<string, unknown> = {};
@@ -123,6 +190,13 @@ export function serializeLinkNote(note: LinkNote): string {
   for (const k of Object.keys(fm)) {
     if (!(CANONICAL_ORDER as readonly string[]).includes(k)) ordered[k] = fm[k];
   }
+  const lines: string[] = [];
+  for (const [k, v] of Object.entries(ordered)) {
+    if (v === undefined) continue;
+    lines.push(
+      `${PLAIN_KEY.test(k) ? k : JSON.stringify(k)}: ${yamlScalar(v)}`,
+    );
+  }
   const body = note.body.replace(/^\n+/, "");
-  return matter.stringify(`\n${body}`, ordered);
+  return `---\n${lines.join("\n")}\n---\n\n${body}\n`;
 }
