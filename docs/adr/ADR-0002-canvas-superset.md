@@ -1,8 +1,8 @@
 # ADR-0002 - `.box.canvas` is a JSON Canvas superset (OQ-1)
 
-| Status | Date | Supersedes |
-|---|---|---|
-| **Accepted - pending group ratify** | 2026-10-12 | - |
+| Status                              | Date       | Supersedes |
+| ----------------------------------- | ---------- | ---------- |
+| **Accepted - pending group ratify** | 2026-10-12 | -          |
 
 ## Context
 
@@ -13,12 +13,17 @@ not define unknown-key handling.
 
 ## Evidence
 
-Verified 2026-10-12 on this machine: Obsidian tolerates **and preserves**
-unknown keys in `.canvas` files - `advanced-canvas`'s installed `main.js`
-writes `floating`, `fromFloating`, `toFloating`, `edgeStyle`, `customColor`,
-`canvasData`, `metadata` into canvas JSON and the values persist across
-saves (the plugin ecosystem depends on it). Superset fields therefore
-survive round-trips through Obsidian, not just parses.
+Verified 2026-10-12 at two levels on this machine:
+
+1. **Parser level** (T-1, `obsidian.asar` extracted): every node/edge object
+   carries `unknownData = {}`; `getData()` spreads `unknownData` first then
+   applies known keys - unknown fields round-trip through Obsidian untouched
+   by design, not accident.
+2. **Ecosystem level**: `advanced-canvas`'s installed `main.js` writes
+   `floating`, `fromFloating`, `toFloating`, `edgeStyle`, `customColor`,
+   `canvasData`, `metadata` into canvas JSON and they persist across saves.
+
+Superset `box-*` fields therefore survive round-trips through Obsidian.
 
 ## Decision
 

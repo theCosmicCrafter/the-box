@@ -1,9 +1,9 @@
 # RE-TARGETS.md - Reverse-Engineering and Study Targets
 
-| | |
-|---|---|
-| **Purpose** | The list of tools to take apart for behavioral study before we build. Say yes/no per row and we proceed in that order. |
-| **Rules** | Study behavior, document semantics, write our own code. Never copy code, strings, or assets. Findings go to `docs/research/findings/` as behavior notes, each stamped `verified <date>`. |
+|             |                                                                                                                                                                                          |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Purpose** | The list of tools to take apart for behavioral study before we build. Say yes/no per row and we proceed in that order.                                                                   |
+| **Rules**   | Study behavior, document semantics, write our own code. Never copy code, strings, or assets. Findings go to `docs/research/findings/` as behavior notes, each stamped `verified <date>`. |
 
 ## Methodology
 
@@ -15,21 +15,21 @@ Three lanes, cheapest first:
 
 ## Target list (yes/no per row)
 
-| # | target | lane | what we learn | effort | status |
-|---|--------|------|---------------|--------|--------|
-| T-1 | **Obsidian** (`obsidian.asar`, installed) | Inspect | Canvas parser internals: unknown-key tolerance (already evidenced), rename-tracking semantics, `.canvas` write ordering, frontmatter edge cases, wikilink resolution rules | medium | **partially done** (advanced-canvas evidence); full parser read pending |
-| T-2 | **Excalidraw** (`excalidraw/excalidraw`) | Clone | Ink/drawing UX patterns, `.excalidraw` JSON format, library-sidecar pattern (relevant to `.ink.svg`) | low | pending yes/no |
-| T-3 | **Kinopio** (`kinopio-club/kinopio-client`) | Clone | Spatial canvas UX done small: cards, connections-as-objects, spaces | low | pending yes/no |
-| T-4 | **tldraw** (repo source-available) | Clone (study only) | Canvas architecture patterns - shape model, bindings, perf strategy. **Study only: license forbids reuse; we're documenting patterns, not code** | medium | pending yes/no |
-| T-5 | **PureRef** (closed freeware) | Inspect+Observe | The reference-board UX gold standard: `.pur` file format, image placement model, always-on-top semantics | medium | pending yes/no |
-| T-6 | **Allume** (Christian's eval list) | Inspect+Observe | What its arrows actually serialize to; storage forensics proving the gap Christian found | medium | pending yes/no (need install) |
-| T-7 | **Muse** (Electron spatial app) | Inspect | Board model, object representation, how a funded team solved file-vs-db | medium | pending yes/no (need install) |
-| T-8 | **Heptabase** (Electron note/canvas app) | Inspect | Card+whiteboard hybrid model, sync format | medium | pending yes/no (need install) |
-| T-9 | **Eagle** (installed + eagle-mcp) | Inspect | Library folder format on disk (thumbnails, metadata db, folder mirroring) | low | pending yes/no |
-| T-10 | **obsidian-excalidraw-plugin** | Clone | How a canvas-in-Obsidian plugin stores drawing data inside a file-ecosystem vault | low | pending yes/no |
-| T-11 | **VS Code watcher path** (`@parcel/watcher` upstream) | Clone/read docs | Event-fidelity edge cases our debounce design must survive | low | defer to chokidar gaps |
-| T-12 | **Krita `.kra` / Rebelle `.reb`?** | Inspect (kra is a zip) | Whether external-app files can carry our metadata hints for tighter round-trip (Stage 2+) | low | defer |
-| T-13 | **Cosmic Canvas / CanvasMCPClient** (ours) | read | already inventoried - R-6 done | done | done |
+| #    | target                                                | lane                   | what we learn                                                                    | effort | status                                                                                              |
+| ---- | ----------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| T-1  | **Obsidian** (`obsidian.asar`, installed)             | Inspect                | Canvas parser internals: unknown-key tolerance, rename semantics, write ordering | medium | **done** - `unknownData` mechanism found in parser ([findings](findings/T-1-obsidian-internals.md)) |
+| T-2  | **Excalidraw** (`excalidraw/excalidraw`)              | Clone                  | Ink/drawing UX, `.excalidraw` format, binding model                              | low    | **done** ([findings](findings/T-2-excalidraw.md))                                                   |
+| T-3  | **Kinopio** (`kinopio-club/kinopio-client`)           | Clone                  | Typed connections as records, spatial model                                      | low    | **done** ([findings](findings/T-3-kinopio.md))                                                      |
+| T-4  | **tldraw** (repo source-available)                    | Clone (study only)     | Schema+migrations, bindings, signals store. License forbids reuse                | medium | **done - out as dep, patterns adopted** ([findings](findings/T-4-tldraw.md))                        |
+| T-5  | **PureRef** (closed freeware)                         | Inspect+Observe        | Reference-board UX; `.pur` likely SQLite (Qt6Sql)                                | medium | **partial** - installed, no .pur samples to hex-check ([findings](findings/T-5-pureref.md))         |
+| T-6  | **Allume** (Christian's eval list)                    | Inspect+Observe        | What its arrows serialize to                                                     | medium | **blocked - not installed**                                                                         |
+| T-7  | **Muse** (spatial app)                                | Inspect                | File-vs-db answer from a funded team                                             | medium | **blocked - macOS/iPad only, not installed**                                                        |
+| T-8  | **Heptabase** (Electron note/canvas)                  | Inspect                | Card+whiteboard storage model                                                    | medium | **blocked - not installed**                                                                         |
+| T-9  | **Eagle** (installed + eagle-mcp)                     | Inspect                | Library folder format: `<id>.info` item folders                                  | low    | **done** ([findings](findings/T-9-eagle.md))                                                        |
+| T-10 | **obsidian-excalidraw-plugin**                        | Clone                  | Drawing-inside-.md storage + agent CLI precedent                                 | low    | **done** ([findings](findings/T-10-obsidian-excalidraw.md))                                         |
+| T-11 | **VS Code watcher path** (`@parcel/watcher` upstream) | Clone/read docs        | Event-fidelity edge cases                                                        | low    | defer to chokidar gaps                                                                              |
+| T-12 | **Krita `.kra` / Rebelle formats**                    | Inspect (kra is a zip) | Metadata hints for tighter round-trip (Stage 2+)                                 | low    | defer                                                                                               |
+| T-13 | **Cosmic Canvas / CanvasMCPClient** (ours)            | read                   | already inventoried - R-6 done                                                   | done   | done                                                                                                |
 
 ## Findings log
 
