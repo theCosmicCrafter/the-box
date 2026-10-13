@@ -56,6 +56,10 @@ export interface NodeViewProps {
   onDraftEnd?: (wx: number, wy: number) => void;
   /** Double-click on an image file node (PureRef/Eagle inspect gesture). */
   onInspect?: ((nodeId: string) => void) | undefined;
+  /** Double-click on a non-image file node -> OS default app (open-with). */
+  onOpenExternal?: ((file: string) => void) | undefined;
+  /** Alt+double-click on a file node -> reveal in the OS file manager. */
+  onReveal?: ((file: string) => void) | undefined;
 }
 
 function fmtSize(n: number): string {
@@ -101,6 +105,9 @@ function FontPreview(props: { url: string; family: string }) {
       .catch(() => {});
     return () => {
       live = false;
+      // FontFace entries are document-global; unregister on unmount or
+      // remounts accumulate duplicate faces for the same family name.
+      if (face.status !== "unloaded") document.fonts.delete(face);
     };
   }, [props.url, props.family]);
   return (
@@ -512,7 +519,11 @@ export function NodeView(props: NodeViewProps) {
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (node.type === "text") setSelfEditing(true);
-        else if (kind === "image") props.onInspect?.(node.id);
+        else if (node.type === "file") {
+          if (e.altKey) props.onReveal?.(node.file);
+          else if (kind === "image") props.onInspect?.(node.id);
+          else props.onOpenExternal?.(node.file);
+        }
       }}
     >
       {node.type === "file" && kind !== null && (

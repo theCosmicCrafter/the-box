@@ -76,6 +76,8 @@ declare global {
         root: string,
         edgeId: string,
       ) => Promise<{ ok: boolean; error?: string }>;
+      openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+      revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
     };
   }
 }
@@ -633,6 +635,15 @@ export function App() {
               const n = board.nodes.find((x) => x.id === id);
               if (n?.type === "file") setInspectPath(n.file);
             }}
+            onOpenFile={(rel) => {
+              void window.box?.openExternal(rel).then((r) => {
+                if (!r.ok)
+                  useBoxStore
+                    .getState()
+                    .setProblems([`open failed: ${rel} - ${r.error}`]);
+              });
+            }}
+            onRevealFile={(rel) => void window.box?.revealFile(rel)}
           />
           {inspectPath !== null && (
             <ImageInspector

@@ -329,20 +329,32 @@ export function ZipPreview(props: { url: string; path: string }) {
     const names = listZipNames(buf);
     const firstThumb = thumbNames[0];
     const thumb = firstThumb !== undefined ? (files[firstThumb] ?? null) : null;
-    return { names, thumb };
+    // Object URL lives in the data so it is created once per load and can be
+    // revoked exactly once (a URL minted inside render leaks every render).
+    const thumbUrl =
+      thumb === null
+        ? null
+        : URL.createObjectURL(
+            new Blob([thumb.buffer as ArrayBuffer], { type: "image/png" }),
+          );
+    return { names, thumbUrl };
   }, [props.url]);
+
+  useEffect(() => {
+    const u = data?.thumbUrl;
+    return () => {
+      if (u) URL.revokeObjectURL(u);
+    };
+  }, [data?.thumbUrl]);
 
   if (err || !data)
     return <div className="node-excerpt">{baseName(props.path)}</div>;
-  if (data.thumb) {
-    const blob = new Blob([data.thumb.buffer as ArrayBuffer], {
-      type: "image/png",
-    });
+  if (data.thumbUrl !== null) {
     return (
       <>
         <img
           className="node-media"
-          src={URL.createObjectURL(blob)}
+          src={data.thumbUrl}
           alt={baseName(props.path)}
           draggable={false}
         />
@@ -446,6 +458,7 @@ export function ModelPreview(props: {
   useEffect(() => {
     let disposed = false;
     let renderer: THREE_NS.WebGLRenderer | null = null;
+    let scene: THREE_NS.Scene | null = null;
     let raf = 0;
     (async () => {
       const THREE = await import("three");
@@ -465,11 +478,11 @@ export function ModelPreview(props: {
       renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
       el.appendChild(renderer.domElement);
 
-      const scene = new THREE.Scene();
-      scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a1d24, 1.4));
+      const sc = (scene = new THREE.Scene());
+      sc.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a1d24, 1.4));
       const dir = new THREE.DirectionalLight(0xffffff, 1.6);
       dir.position.set(3, 5, 4);
-      scene.add(dir);
+      sc.add(dir);
       const cam = new THREE.PerspectiveCamera(40, w / h, 0.01, 5000);
 
       const load = async (): Promise<THREE_NS.Object3D> => {
@@ -536,18 +549,18 @@ export function ModelPreview(props: {
         const sphere = box.getBoundingSphere(new THREE.Sphere());
         const r = Math.max(sphere.radius, 0.001);
         obj.position.sub(sphere.center);
-        scene.add(obj);
+        sc.add(obj);
         cam.position.set(r * 1.6, r * 0.9, r * 1.9);
         cam.lookAt(0, 0, 0);
         const group = new THREE.Group();
         // rotate around scene center: wrap object
-        scene.remove(obj);
+        sc.remove(obj);
         group.add(obj);
-        scene.add(group);
+        sc.add(group);
         const tick = () => {
           if (disposed) return;
           group.rotation.y += 0.008;
-          renderer!.render(scene, cam);
+          renderer!.render(sc, cam);
           raf = requestAnimationFrame(tick);
         };
         tick();
@@ -560,8 +573,26 @@ export function ModelPreview(props: {
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      // GPU resources outlive renderer.dispose() otherwise - geometries,
+      // materials and embedded textures all need explicit .dispose().
+      scene?.traverse((o) => {
+        const mesh = o as THREE_NS.Mesh;
+        mesh.geometry?.dispose();
+        const mats = Array.isArray(mesh.material)
+          ? mesh.material
+          : [mesh.material];
+        for (const m of mats) {
+          if (m === undefined) continue;
+          for (const v of Object.values(m)) {
+            if ((v as THREE_NS.Texture | null)?.isTexture === true)
+              (v as THREE_NS.Texture).dispose();
+          }
+          m.dispose();
+        }
+      });
       renderer?.dispose();
       renderer?.domElement.remove();
+      scene = null;
     };
   }, [props.url, props.path]);
   if (failed) return <>{props.fallback ?? null}</>;
@@ -580,13 +611,15 @@ export function TexturePreview(props: {
   useEffect(() => {
     let disposed = false;
     let renderer: THREE_NS.WebGLRenderer | null = null;
+    let tex: THREE_NS.Texture | null = null;
+    let meshRef: THREE_NS.Mesh | null = null;
     (async () => {
       const THREE = await import("three");
       const ext = props.path
         .slice(props.path.lastIndexOf(".") + 1)
         .toLowerCase();
       if (!mount.current || disposed) return;
-      let tex: THREE_NS.Texture | null = null;
+      tex = null;
       try {
         if (ext === "exr") {
           const { EXRLoader } =
@@ -619,20 +652,25 @@ export function TexturePreview(props: {
       el.appendChild(renderer.domElement);
       const scene = new THREE.Scene();
       const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-      scene.add(
-        new THREE.Mesh(
-          new THREE.PlaneGeometry(2, 2),
-          new THREE.MeshBasicMaterial({ map: tex, toneMapped: true }),
-        ),
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.MeshBasicMaterial({ map: tex, toneMapped: true }),
       );
+      meshRef = mesh;
+      scene.add(mesh);
       renderer.render(scene, cam);
     })().catch(() => {
       if (!disposed) setFailed(true);
     });
     return () => {
       disposed = true;
+      meshRef?.geometry.dispose();
+      (meshRef?.material as THREE_NS.Material | undefined)?.dispose();
+      tex?.dispose();
       renderer?.dispose();
       renderer?.domElement.remove();
+      meshRef = null;
+      tex = null;
     };
   }, [props.url, props.path]);
   if (failed) return <>{props.fallback ?? null}</>;

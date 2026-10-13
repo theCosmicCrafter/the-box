@@ -60,6 +60,12 @@ const api = {
     edgeId: string,
   ): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("fs:appendTombstone", root, edgeId),
+  /** Open a workspace file in its OS-default app (the "open with" pillar). */
+  openExternal: (rel: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("workspace:openExternal", rel),
+  /** Reveal a workspace file in the OS file manager. */
+  revealFile: (rel: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("workspace:reveal", rel),
 };
 
 export type BoxApi = typeof api;

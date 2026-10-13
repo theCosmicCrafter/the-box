@@ -45,6 +45,10 @@ export interface BoardViewProps {
   onEmptyDoubleClick?: (wx: number, wy: number) => void;
   /** Double-click on an image node -> full-window inspector (PureRef/Eagle). */
   onInspectNode?: (nodeId: string) => void;
+  /** Double-click on a non-image file node -> OS default app. */
+  onOpenFile?: (file: string) => void;
+  /** Alt+double-click on a file node -> OS file manager. */
+  onRevealFile?: (file: string) => void;
   /** Edge draft released over empty canvas - "connect to nothing yet". */
   onDropEdgeAt?: (
     fromId: string,
@@ -218,6 +222,8 @@ export function BoardView(props: BoardViewProps) {
           onCommit={props.onCommit ?? (() => {})}
           onTextCommit={props.onTextCommit ?? (() => {})}
           onInspect={props.onInspectNode}
+          onOpenExternal={props.onOpenFile}
+          onReveal={props.onRevealFile}
           onDraftStart={(nodeId, side) => {
             const w = anchor(n, side);
             setDraft({

@@ -529,6 +529,30 @@ void app.whenReady().then(() => {
     },
   );
 
+  // "Open with" is a pillar: files round-trip to external editors.
+  // resolveInside guards both - IPC paths can never escape the workspace.
+  ipcMain.handle("workspace:openExternal", async (_e, rel: string) => {
+    const root = workspaceRoot ?? session?.root;
+    if (root === undefined || root === null)
+      return { ok: false, error: "no workspace" };
+    const abs = resolveInside(root, rel);
+    if (abs === null)
+      return { ok: false, error: `path escapes workspace: ${rel}` };
+    const err = await shell.openPath(abs); // "" on success
+    return err === "" ? { ok: true } : { ok: false, error: err };
+  });
+
+  ipcMain.handle("workspace:reveal", async (_e, rel: string) => {
+    const root = workspaceRoot ?? session?.root;
+    if (root === undefined || root === null)
+      return { ok: false, error: "no workspace" };
+    const abs = resolveInside(root, rel);
+    if (abs === null)
+      return { ok: false, error: `path escapes workspace: ${rel}` };
+    shell.showItemInFolder(abs);
+    return { ok: true };
+  });
+
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
