@@ -10,6 +10,7 @@ import { baseName } from "../model/paths.js";
 import type {
   Board,
   CanvasEdge,
+  InkSidecar,
   LinkNote,
   ProblemItem,
   ReconcileReport,
@@ -32,14 +33,38 @@ export interface WorkspaceScan {
    * (R-A: regenerate stub) - the index serves as memory, files stay truth.
    * Absent => conservative: treat as never-seen (regenerate, never destroy).
    */
-  knownNotes?: Set<string>;
+  knownNotes?: Set<string> | undefined;
+  /**
+   * File rename mapping (oldPath -> newPath) from classifyFileSet rename
+   * deltas (Rule R-G / DATA-MODEL §4.4 & §6, Invariant I-5).
+   */
+  renames?: ReadonlyMap<string, string> | undefined;
+  /**
+   * Parsed .ink.svg sidecars keyed by workspace-relative path (ERR-8).
+   */
+  ink?: ReadonlyMap<string, ParseResult<InkSidecar>> | undefined;
 }
 
 function notePathFor(edgeId: string): string {
   return linkNoteName(edgeId);
 }
 
-function stubNote(edge: CanvasEdge, boardPathRel: string): LinkNote {
+function nodeFileOf(
+  board: Board | undefined,
+  nodeId: string,
+): string | undefined {
+  if (board === undefined) return undefined;
+  const n = board.nodes.find((node) => node.id === nodeId);
+  return n?.type === "file" ? n.file : undefined;
+}
+
+function stubNote(
+  edge: CanvasEdge,
+  boardPathRel: string,
+  board?: Board,
+): LinkNote {
+  const fromFile = nodeFileOf(board, edge.fromNode);
+  const toFile = nodeFileOf(board, edge.toNode);
   return {
     path: notePathFor(edge.id),
     frontmatter: {
@@ -48,6 +73,11 @@ function stubNote(edge: CanvasEdge, boardPathRel: string): LinkNote {
       from: edge.fromNode,
       to: edge.toNode,
       board: baseName(boardPathRel),
+      ...(fromFile !== undefined ? { "from-file": fromFile } : {}),
+      ...(toFile !== undefined ? { "to-file": toFile } : {}),
+      ...(typeof edge.label === "string" && edge.label !== ""
+        ? { type: edge.label }
+        : {}),
       created: new Date(0).toISOString(),
     },
     body: "",
@@ -81,14 +111,57 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
     if (boardsChanged.has(p)) return boardsChanged.get(p) ?? null;
     return scan.boards.get(p)?.value ?? null;
   };
+  const recordBoardWrite = (path: string, fixed: Board): void => {
+    boardsChanged.set(path, fixed);
+    const content = serializeBoard(fixed);
+    const existing = steps.find(
+      (s): s is Extract<WriteStep, { op: "write-atomic" }> =>
+        s.op === "write-atomic" && s.path === path,
+    );
+    if (existing !== undefined) {
+      existing.content = content;
+    } else {
+      steps.push({ op: "write-atomic", path, content });
+    }
+  };
+
+  // R-G: rename propagation (DATA-MODEL §4.4 & §6, Invariant I-5).
+  // Ordering: boards first, then note denorms below. Node IDs and placement
+  // coordinates are never altered.
+  if (scan.renames !== undefined && scan.renames.size > 0) {
+    const renames = scan.renames;
+    for (const [path, res] of scan.boards) {
+      if (res.value === null) continue;
+      let changed = false;
+      const nextNodes = res.value.nodes.map((node) => {
+        if (node.type !== "file") return node;
+        const nextFile = renames.get(node.file);
+        const inkVal = node["box-ink"];
+        const nextInk =
+          typeof inkVal === "string" ? renames.get(inkVal) : undefined;
+        if (nextFile === undefined && nextInk === undefined) return node;
+        changed = true;
+        return {
+          ...node,
+          ...(nextFile !== undefined ? { file: nextFile } : {}),
+          ...(nextInk !== undefined ? { "box-ink": nextInk } : {}),
+        };
+      });
+      if (changed) {
+        const fixed: Board = { ...res.value, nodes: nextNodes };
+        recordBoardWrite(path, fixed);
+      }
+    }
+  }
 
   for (const [path, res] of scan.boards) {
     if (res.value === null) {
       problems.push(...res.problems);
       continue;
     }
-    const nodeIds = new Set(res.value.nodes.map((n) => n.id));
-    for (const node of res.value.nodes) {
+    const curBoard = boardOf(path) ?? res.value;
+    const nodeIds = new Set(curBoard.nodes.map((n) => n.id));
+    for (const node of curBoard.nodes) {
       if (node.type === "file" && !scan.files.has(node.file)) {
         // R-E: node renders broken, NOT removed (I-7)
         brokenNodes.push(node.id);
@@ -99,7 +172,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
         });
       }
     }
-    for (const edge of res.value.edges) {
+    for (const edge of curBoard.edges) {
       if (scan.tombstones.has(edge.id)) {
         // I-2 completion: a tombstoned edge dies on the board too, in the
         // same pass. Without this, R-D trashes the note while the edge
@@ -111,12 +184,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
             ...b,
             edges: b.edges.filter((e) => e.id !== edge.id),
           };
-          boardsChanged.set(path, fixed);
-          steps.push({
-            op: "write-atomic",
-            path,
-            content: serializeBoard(fixed),
-          });
+          recordBoardWrite(path, fixed);
         }
         problems.push({
           kind: "tombstone-complete",
@@ -150,12 +218,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
               ...b,
               edges: b.edges.filter((e) => e.id !== edge.id),
             };
-            boardsChanged.set(path, fixed);
-            steps.push({
-              op: "write-atomic",
-              path,
-              content: serializeBoard(fixed),
-            });
+            recordBoardWrite(path, fixed);
           }
           problems.push({
             kind: "edge-without-note",
@@ -170,7 +233,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
           path,
           detail: `edge ${edge.id} missing note; regenerating stub`,
         });
-        const stub = stubNote(edge, path);
+        const stub = stubNote(edge, path, boardOf(path) ?? curBoard);
         steps.push({
           op: "write-atomic",
           path: stub.path,
@@ -194,12 +257,7 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
                   : e,
               ),
             };
-            boardsChanged.set(path, fixed);
-            steps.push({
-              op: "write-atomic",
-              path,
-              content: serializeBoard(fixed),
-            });
+            recordBoardWrite(path, fixed);
             problems.push({
               kind: "malformed-note",
               path,
@@ -254,15 +312,15 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
             fromNode: note.frontmatter.from,
             toNode: note.frontmatter.to,
             toEnd: "arrow",
+            ...(typeof note.frontmatter["type"] === "string" &&
+            note.frontmatter["type"] !== ""
+              ? { label: note.frontmatter["type"] }
+              : {}),
             "box-link": linkNoteName(edgeId),
           };
           const fixed: Board = { ...b, edges: [...b.edges, edge] };
-          boardsChanged.set(target, fixed);
-          steps.push({
-            op: "write-atomic",
-            path: target,
-            content: serializeBoard(fixed),
-          });
+          recordBoardWrite(target, fixed);
+          referencedNotes.set(edgeId, { boardPath: target, edge });
         }
       } else {
         problems.push({
@@ -278,9 +336,20 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
     if (holder !== undefined) {
       const b = boardOf(holder.boardPath);
       if (b !== null) {
-        const fileOf = (id: string) =>
-          b.nodes.find((n) => n.id === id && n.type === "file")?.["file"] as
-            string | undefined;
+        const fileOf = (id: string): string | undefined => {
+          const onHolder = b.nodes.find(
+            (n) => n.id === id && n.type === "file",
+          );
+          if (onHolder?.type === "file") return onHolder.file;
+          for (const bp of scan.boards.keys()) {
+            const other = boardOf(bp);
+            const found = other?.nodes.find(
+              (n) => n.id === id && n.type === "file",
+            );
+            if (found?.type === "file") return found.file;
+          }
+          return undefined;
+        };
         const ff = fileOf(note.frontmatter.from);
         const tf = fileOf(note.frontmatter.to);
         if (
@@ -320,13 +389,17 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
               return want === undefined ? rest : { ...rest, label: want };
             }),
           };
-          boardsChanged.set(holder.boardPath, fixed);
-          steps.push({
-            op: "write-atomic",
-            path: holder.boardPath,
-            content: serializeBoard(fixed),
-          });
+          recordBoardWrite(holder.boardPath, fixed);
         }
+      }
+    }
+  }
+
+  // ERR-8: malformed .ink.svg sidecars are surfaced in problems, never dropped.
+  if (scan.ink !== undefined) {
+    for (const [, inkRes] of scan.ink) {
+      if (inkRes.value === null) {
+        problems.push(...inkRes.problems);
       }
     }
   }

@@ -5,18 +5,35 @@
 
 import { Icon } from "./icons.js";
 
+export const INK_COLORS = [
+  "#e8b931",
+  "#ef4444",
+  "#22c55e",
+  "#3b82f6",
+  "#a855f7",
+  "#f8fafc",
+] as const;
+
+export const INK_SIZES = [4, 10, 18] as const;
+
 export function Ribbon(props: {
   hasWorkspace: boolean;
   sidebarOpen: boolean;
   /** A board is open - ink tools apply to its file nodes. */
-  boardOpen?: boolean;
-  inkMode?: "off" | "draw" | "erase";
-  onInkMode?: (mode: "off" | "draw" | "erase") => void;
-  onOpenWorkspace?: () => void;
-  onRescan?: () => void;
-  onNewBoard?: () => void;
-  onToggleSidebar?: () => void;
+  boardOpen?: boolean | undefined;
+  inkMode?: "off" | "draw" | "erase" | undefined;
+  onInkMode?: ((mode: "off" | "draw" | "erase") => void) | undefined;
+  inkColor?: string | undefined;
+  onInkColor?: ((color: string) => void) | undefined;
+  inkSize?: number | undefined;
+  onInkSize?: ((size: number) => void) | undefined;
+  onOpenWorkspace?: (() => void) | undefined;
+  onRescan?: (() => void) | undefined;
+  onNewBoard?: (() => void) | undefined;
+  onToggleSidebar?: (() => void) | undefined;
 }) {
+  const activeColor = props.inkColor ?? INK_COLORS[0];
+  const activeSize = props.inkSize ?? INK_SIZES[1];
   return (
     <nav className="ribbon" aria-label="workspace actions">
       <button
@@ -77,6 +94,41 @@ export function Ribbon(props: {
               >
                 <Icon name="eraser" size={18} />
               </button>
+              {props.inkMode === "draw" && (
+                <div className="ribbon-ink-palette" aria-label="ink options">
+                  {INK_COLORS.map((c) => {
+                    const active = activeColor === c;
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        className={"ribbon-swatch" + (active ? " active" : "")}
+                        style={{ backgroundColor: c }}
+                        title={`Ink color ${c}`}
+                        onClick={() => props.onInkColor?.(c)}
+                      />
+                    );
+                  })}
+                  {INK_SIZES.map((s) => {
+                    const active = activeSize === s;
+                    const d = Math.max(3, Math.round(s * 0.55));
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        className={"ribbon-size" + (active ? " active" : "")}
+                        title={`Stroke width ${s}px`}
+                        onClick={() => props.onInkSize?.(s)}
+                      >
+                        <span
+                          className="ribbon-size-dot"
+                          style={{ width: d, height: d }}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div className="ribbon-gap" />
             </>
           )}

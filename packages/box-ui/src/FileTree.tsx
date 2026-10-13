@@ -75,27 +75,45 @@ function fileIcon(path: string): IconName {
   return "file";
 }
 
+/**
+ * DATA-MODEL §1: returns true when `path` is a user object eligible for
+ * "The Box" (unplaced holding area), excluding app-managed `.box/` files,
+ * root-level `link-<16hex>.md` relationship notes, and bound `.ink.svg`
+ * sidecar overlays.
+ */
+export function isBoxUserObject(
+  path: string,
+  boundInkPaths?: ReadonlySet<string>,
+): boolean {
+  if (path === ".box" || path.startsWith(".box/")) return false;
+  if (!/\//.test(path) && /^link-[0-9a-f]{16}\.md$/.test(path)) return false;
+  if (boundInkPaths?.has(path)) return false;
+  return true;
+}
+
 export function FileTree(props: {
   files: WorkspaceFile[];
   /** Currently open board - highlighted in the tree. */
   activePath?: string | undefined;
   onOpen?: (path: string) => void;
   /**
-   * FR-202 "the Box": when set, only files NOT placed on the open board
+   * FR-202 "the Box": when set, only user files NOT placed on any board
    * show - placing one makes it leave the list.
    */
   unplacedOnly?: boolean | undefined;
   placedPaths?: Set<string> | undefined;
+  boundInkPaths?: Set<string> | undefined;
 }) {
   const visible = useMemo(
     () =>
-      props.unplacedOnly && props.placedPaths
+      props.unplacedOnly
         ? props.files.filter(
             (f) =>
-              !props.placedPaths!.has(f.path) || f.path === props.activePath,
+              isBoxUserObject(f.path, props.boundInkPaths) &&
+              !props.placedPaths?.has(f.path),
           )
         : props.files,
-    [props.files, props.unplacedOnly, props.placedPaths, props.activePath],
+    [props.files, props.unplacedOnly, props.placedPaths, props.boundInkPaths],
   );
   const tree = useMemo(() => buildTree(visible), [visible]);
   // Top-level dirs start expanded (better first-run demo); toggles persist

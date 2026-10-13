@@ -30,6 +30,10 @@ export interface BoardViewProps {
   fileEdit?: { nodeId: string; text: string } | null | undefined;
   /** Ink mode: draw captures strokes on file nodes, erase removes them. */
   inkMode?: "off" | "draw" | "erase" | undefined;
+  /** Active ink stroke color (CSS color, default "#e8b931"). */
+  inkColor?: string | undefined;
+  /** Active ink stroke width in px (default 10). */
+  inkSize?: number | undefined;
   /** Parsed .ink.svg strokes per node id (platform loads sidecars). */
   inkByNodeId?: Map<string, InkStroke[]> | undefined;
   resolveMedia?: ((rel: string) => string) | undefined;
@@ -143,6 +147,10 @@ export function BoardView(props: BoardViewProps) {
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [inkDraft, setInkDraft] = useState<{
+    nodeId: string;
+    points: InkPoint[];
+  } | null>(null);
+  const inkDraftRef = useRef<{
     nodeId: string;
     points: InkPoint[];
   } | null>(null);
@@ -294,23 +302,23 @@ export function BoardView(props: BoardViewProps) {
           onFileCommit={props.onFileCommit}
           onFileEditCancel={props.onFileEditCancel}
           onEditFile={props.onEditFile}
-          onInkStart={(id, lx, ly, p) =>
-            setInkDraft({ nodeId: id, points: [{ x: lx, y: ly, p }] })
-          }
-          onInkMove={(id, lx, ly, p) =>
-            setInkDraft((d) =>
-              d && d.nodeId === id
-                ? { ...d, points: [...d.points, { x: lx, y: ly, p }] }
-                : d,
-            )
-          }
+          onInkStart={(id, lx, ly, p) => {
+            const next = { nodeId: id, points: [{ x: lx, y: ly, p }] };
+            inkDraftRef.current = next;
+            setInkDraft(next);
+          }}
+          onInkMove={(id, lx, ly, p) => {
+            const d = inkDraftRef.current;
+            if (!d || d.nodeId !== id) return;
+            const next = { ...d, points: [...d.points, { x: lx, y: ly, p }] };
+            inkDraftRef.current = next;
+            setInkDraft(next);
+          }}
           onInkEnd={(id) => {
-            if (
-              inkDraft &&
-              inkDraft.nodeId === id &&
-              inkDraft.points.length > 0
-            )
-              props.onInkStroke?.(id, inkDraft.points);
+            const cur = inkDraftRef.current;
+            if (cur && cur.nodeId === id && cur.points.length > 0)
+              props.onInkStroke?.(id, cur.points);
+            inkDraftRef.current = null;
             setInkDraft(null);
           }}
           onInkErase={props.onInkErase}
@@ -378,7 +386,10 @@ export function BoardView(props: BoardViewProps) {
             viewBox={`0 0 ${n.width} ${n.height}`}
             preserveAspectRatio="none"
           >
-            <path d={strokeToPath(inkDraft.points)} fill="#e8b931" />
+            <path
+              d={strokeToPath(inkDraft.points, props.inkSize ?? 10)}
+              fill={props.inkColor ?? "#e8b931"}
+            />
           </svg>
         );
       })()}

@@ -8,7 +8,7 @@
 // pattern): drag from one to start a connection draft.
 
 import type { CanvasNode, FileKind, InkStroke, Side } from "@box/core";
-import { baseName, fileKind } from "@box/core";
+import { baseName, fileKind, inkStrokeColor } from "@box/core";
 import { useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
 import { screenToWorld } from "./camera.js";
@@ -581,11 +581,12 @@ export function NodeView(props: NodeViewProps) {
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        if (props.inkMode === "draw" || props.inkMode === "erase") return;
         if (node.type === "text") setSelfEditing(true);
         else if (node.type === "file") {
           if (e.altKey) props.onReveal?.(node.file);
           else if (kind === "image") props.onInspect?.(node.id);
-          else if (kind === "text") props.onEditFile?.(node);
+          else if (kind === "text" || kind === "code") props.onEditFile?.(node);
           else props.onOpenExternal?.(node.file);
         }
       }}
@@ -599,7 +600,9 @@ export function NodeView(props: NodeViewProps) {
         <span className="node-kind">{kind}</span>
       )}
       {props.broken && <span className="node-flag">missing</span>}
-      {node.type === "file" && props.editing && kind === "text" ? (
+      {node.type === "file" &&
+      props.editing &&
+      (kind === "text" || kind === "code") ? (
         <textarea
           className="node-edit"
           autoFocus
@@ -655,11 +658,7 @@ export function NodeView(props: NodeViewProps) {
             aria-hidden
           >
             {props.ink.map((s, i) => (
-              <path
-                key={i}
-                d={s.d}
-                fill={(s["stroke"] as string) ?? "#e8b931"}
-              />
+              <path key={i} d={s.d} fill={inkStrokeColor(s, "#e8b931")} />
             ))}
           </svg>
         )}

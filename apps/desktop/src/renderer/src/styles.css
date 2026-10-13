@@ -1180,3 +1180,53 @@ button:hover {
   border-color: #e8b931;
   background: rgba(232, 185, 49, 0.08);
 }
+
+/* ---- ribbon ink palette (FR-105) ---- */
+
+.ribbon-ink-palette {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 0;
+}
+
+.ribbon-swatch {
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ribbon-swatch.active {
+  border-color: #ffffff;
+  box-shadow: 0 0 0 1px #10131a;
+}
+
+.ribbon-size {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #2a3140;
+  border-radius: 4px;
+  background: transparent;
+  color: #8a93a5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ribbon-size.active {
+  border-color: #e8b931;
+  color: #e8b931;
+  background: rgba(232, 185, 49, 0.12);
+}
+
+.ribbon-size-dot {
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+}

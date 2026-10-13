@@ -2,6 +2,7 @@
 // @box/core - the product kernel. Pure TS, platform-agnostic, headless.
 // If this package ever imports electron/fs/net/http, the lint gate fails.
 
+export * from "./decisions/decisions.js";
 export * from "./model/board.js";
 export * from "./model/ids.js";
 export * from "./model/ink.js";

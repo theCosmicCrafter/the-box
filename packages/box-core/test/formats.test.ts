@@ -2,16 +2,20 @@
 // Format round-trip tests - the "test:formats" gate. Every durable format
 // parses, serializes, and re-parses identically.
 
-import { describe, it, expect } from "vitest";
-import { parseLinkNote, serializeLinkNote } from "../src/model/linkNote.js";
-import { parseInkSvg, serializeInkSvg } from "../src/model/ink.js";
-import { serializeBoard, parseBoard } from "../src/model/board.js";
+import { describe, expect, it } from "vitest";
+import { parseBoard, serializeBoard } from "../src/model/board.js";
 import {
   edgeIdFromNoteName,
+  isEdgeId,
   linkNoteName,
   newEdgeId,
-  isEdgeId,
 } from "../src/model/ids.js";
+import {
+  inkStrokeColor,
+  parseInkSvg,
+  serializeInkSvg,
+} from "../src/model/ink.js";
+import { parseLinkNote, serializeLinkNote } from "../src/model/linkNote.js";
 
 const EDGE = "7f3a9c2b1d4e5f6a";
 const NOTE_MD = `---
@@ -79,6 +83,8 @@ describe("formats: ink sidecar", () => {
     const r = parseInkSvg(svg);
     expect(r.value?.strokes[0]?.d).toBe("M0 0L10 10");
     expect(r.value?.strokes[0]?.["stroke-width"]).toBe(6);
+    expect(inkStrokeColor(r.value!.strokes[0]!)).toBe("#ff0000");
+    expect(serializeInkSvg(r.value!)).toBe(svg);
   });
 
   it("flags hostile svg", () => {

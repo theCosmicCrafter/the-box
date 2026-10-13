@@ -8,6 +8,7 @@
 
 import type {
   Board,
+  InkSidecar,
   LinkNote,
   ParseResult,
   WorkspaceScan,
@@ -18,6 +19,7 @@ import {
   classifyFileSet,
   edgeIdFromNoteName,
   parseBoard,
+  parseInkSvg,
   parseLinkNote,
   reconcile,
 } from "@box/core";
@@ -45,13 +47,15 @@ export function onWorkspaceChanged(cb: (e: WorkspaceChanged) => void) {
 const snapshot = (files: WorkspaceFile[]) =>
   new Map(files.map((f) => [f.path, { size: f.size, mtime: f.mtime }]));
 
-/** Parse every board + root-level link note; malformed -> problems ride along. */
+/** Parse every board + root-level link note + ink sidecar; malformed -> problems ride along. */
 async function buildScan(
   wsRoot: string,
   files: WorkspaceFile[],
+  renames?: ReadonlyMap<string, string>,
 ): Promise<WorkspaceScan> {
   const boards = new Map<string, ParseResult<Board>>();
   const notes = new Map<string, ParseResult<LinkNote>>();
+  const ink = new Map<string, ParseResult<InkSidecar>>();
   for (const f of files) {
     if (f.path.endsWith(".box.canvas")) {
       const raw = await invoke<string | null>("fs_read", {
@@ -66,6 +70,12 @@ async function buildScan(
         rel: f.path,
       });
       if (raw !== null) notes.set(f.path, parseLinkNote(raw, f.path));
+    } else if (f.path.endsWith(".ink.svg")) {
+      const raw = await invoke<string | null>("fs_read", {
+        root: wsRoot,
+        rel: f.path,
+      });
+      if (raw !== null) ink.set(f.path, parseInkSvg(raw, f.path));
     }
   }
   const tombRaw =
@@ -86,9 +96,11 @@ async function buildScan(
   return {
     boards,
     notes,
+    ink,
     files: new Set(files.map((f) => f.path)),
     tombstones,
     knownNotes,
+    ...(renames && renames.size > 0 ? { renames } : {}),
   };
 }
 
@@ -123,6 +135,12 @@ async function runSync(): Promise<void> {
       queued = false;
       let files = await invoke<WorkspaceFile[]>("scan", { root: wsRoot });
       const deltas = classifyFileSet({ files: prev }, files);
+      const renames = new Map<string, string>();
+      for (const d of deltas) {
+        if (d.kind === "renamed" && d.to !== undefined) {
+          renames.set(d.path, d.to);
+        }
+      }
       const changedPaths = new Set(
         deltas.flatMap((d) =>
           d.kind === "renamed" && d.to !== undefined
@@ -132,7 +150,7 @@ async function runSync(): Promise<void> {
       );
 
       // Reconcile to convergence (self-writes make later passes no-ops).
-      let scan_ = await buildScan(wsRoot, files);
+      let scan_ = await buildScan(wsRoot, files, renames);
       let report = reconcile(scan_);
       let pass = 0;
       while (report.plan.steps.length > 0 && pass < MAX_PASSES) {

@@ -170,6 +170,26 @@ unplaced filter hides placed files (c50.txt, untitled-1.md) and keeps
 unplaced ones (untitled.md, c59.txt). Every node now persists
 `box-placement:{2d:{x,y,w,h},3d:null}` equal to spec coords.
 
+Live-verified 2026-10-13 (second pass, same harness): rename propagation
+R-G - `mv c50.txt c50-renamed.txt` in Explorer updated the board `file:`
+field and both link notes' `from-file`/`to-file` denorms within ~2s, no
+broken nodes, no problems; renaming back converged the same way.
+ERR-8 - injecting `<script>` into a bound `.ink.svg` produced a
+`malformed-note` problem item while the node kept its last-good strokes;
+restoring the file cleared the problem. Ink palette - 6 swatches + 3
+sizes in the ribbon while draw mode is active; a red 18px stroke
+round-tripped to the sidecar as `fill="#ef4444" stroke-width="18"`.
+"Clear ink strokes" context action trashed the sidecar (recoverable),
+dropped `box-ink`, and cleared the overlay. Unplaced filter shows a live
+count (`unplaced (N)`) and excludes `.box/` internals, root link notes,
+and bound sidecars.
+
+New this pass: `invariant-I4..I9` suites landed as Vitest files
+(tmpdir fixtures; I-9 statically asserts reconcile never emits
+placement-mutating writes), plus `decisions.ts` - a disabled-by-default,
+confidence-gated, proposal-only local decision client (no write plans,
+preserves I-9).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

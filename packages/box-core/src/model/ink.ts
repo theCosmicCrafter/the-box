@@ -3,8 +3,8 @@
 // Our own files use a strict allowlist shape: <svg><path d ... box-* attrs/></svg>.
 // Foreign/invalid SVG is a problem item, never rendered, never rewritten.
 
-import type { InkSidecar, InkStroke, ProblemItem } from "./types.js";
 import type { ParseResult } from "./board.js";
+import type { InkSidecar, InkStroke, ProblemItem } from "./types.js";
 
 const ALLOWED_PATH_ATTRS =
   /^(d|stroke|stroke-width|stroke-linecap|stroke-linejoin|fill|opacity|data-[a-z-]+|box-[a-z-]+)$/;
@@ -67,13 +67,25 @@ export function parseInkSvg(
   return { value: { strokes }, problems };
 }
 
+/** Extract the visible color of a parsed or newly-created InkStroke. */
+export function inkStrokeColor(
+  s: InkStroke,
+  fallback = "currentColor",
+): string {
+  const f = s["fill"];
+  if (typeof f === "string" && f !== "" && f !== "none") return f;
+  const st = s["stroke"];
+  if (typeof st === "string" && st !== "" && st !== "none") return st;
+  return fallback;
+}
+
 /** Canonical emit: one path per stroke, deterministic attribute order. */
 export function serializeInkSvg(sidecar: InkSidecar): string {
   const lines = sidecar.strokes.map((s) => {
     const w = s["stroke-width"] ?? 4;
-    const c = s["stroke"] ?? "currentColor";
+    const c = inkStrokeColor(s, "currentColor");
     const extras = Object.entries(s)
-      .filter(([k]) => !["d", "stroke", "stroke-width"].includes(k))
+      .filter(([k]) => !["d", "fill", "stroke", "stroke-width"].includes(k))
       .map(([k, v]) => ` ${k}="${String(v)}"`)
       .join("");
     return `  <path d="${s.d}" fill="${c}" stroke="none" stroke-width="${w}"${extras}/>`;

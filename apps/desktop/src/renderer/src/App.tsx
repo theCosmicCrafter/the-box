@@ -45,6 +45,7 @@ import {
   FileTree,
   Icon,
   ImageInspector,
+  isBoxUserObject,
   NotePanel,
   pathToPolygon,
   pointInPolygon,
@@ -193,6 +194,8 @@ export function App() {
   const [inspectPath, setInspectPath] = useState<string | null>(null);
   // Ink: "off" | "draw" | "erase" board mode + parsed strokes per node id.
   const [inkMode, setInkMode] = useState<"off" | "draw" | "erase">("off");
+  const [inkColor, setInkColor] = useState<string>("#e8b931");
+  const [inkSize, setInkSize] = useState<number>(10);
   const [inkMap, setInkMap] = useState<Map<string, InkStroke[]>>(new Map());
   // FR-104: text-kind file node being edited in place.
   const [fileEdit, setFileEdit] = useState<{
@@ -434,7 +437,10 @@ export function App() {
       if (typeof rel !== "string") continue;
       const t = await window.box.readFile(workspaceRoot, rel);
       if (t === null) continue;
-      const { value } = parseInkSvg(t, rel);
+      const { value, problems } = parseInkSvg(t, rel);
+      if (problems.length > 0) {
+        useBoxStore.getState().setProblems(problems.map(fmtProblem));
+      }
       if (value) next.set(n.id, value.strokes);
     }
     setInkMap(next);
@@ -450,11 +456,11 @@ export function App() {
     if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
     const rel =
       typeof n["box-ink"] === "string" ? n["box-ink"] : `${n.file}.ink.svg`;
-    const d = strokeToPath(pts);
+    const d = strokeToPath(pts, inkSize);
     if (!d) return;
     const strokes = [
       ...(inkMap.get(nodeId) ?? []),
-      { d, stroke: "#e8b931", "stroke-width": 10 },
+      { d, fill: inkColor, stroke: inkColor, "stroke-width": inkSize },
     ];
     const r = await window.box.writeFileAtomic(
       workspaceRoot,
@@ -560,6 +566,23 @@ export function App() {
       ),
     [board?.nodes],
   );
+  const boundInkPaths = useMemo(
+    () =>
+      new Set(
+        (board?.nodes ?? [])
+          .filter((n) => n.type === "file" && typeof n["box-ink"] === "string")
+          .map((n) => (n.type === "file" ? (n["box-ink"] as string) : "")),
+      ),
+    [board?.nodes],
+  );
+  const unplacedCount = useMemo(
+    () =>
+      files.filter(
+        (f) =>
+          isBoxUserObject(f.path, boundInkPaths) && !placedPaths.has(f.path),
+      ).length,
+    [files, boundInkPaths, placedPaths],
+  );
 
   const saveBoard = async () => {
     const b = useBoxStore.getState().board;
@@ -585,6 +608,19 @@ export function App() {
         brokenNodes: new Set(e.brokenNodes),
         brokenEdges: new Set(e.brokenEdges),
       });
+      for (const d of e.deltas) {
+        if (d.kind === "renamed" && d.to !== undefined) {
+          const to = d.to;
+          setInspectPath((cur) => (cur === d.path ? to : cur));
+          setFileTexts((prev) => {
+            const ex = prev.get(d.path) ?? fileTexts.get(d.path);
+            if (ex === undefined) return prev;
+            const next = new Map(prev);
+            next.set(to, ex);
+            return next;
+          });
+        }
+      }
       const { boardPath: bp, board: cur, workspaceRoot: root } = s;
       if (root && bp && e.changedPaths.includes(bp)) {
         void (async () => {
@@ -918,6 +954,31 @@ export function App() {
           onPick: () => setInspectPath(file),
         });
       }
+      if (fileKind(file) === "text" || fileKind(file) === "code") {
+        items.push({
+          label: "Edit in place",
+          icon: "type",
+          hint: "dbl-click",
+          onPick: () => void startFileEdit(node),
+        });
+      }
+      if (typeof node["box-ink"] === "string") {
+        items.push({
+          label: "Clear ink strokes",
+          icon: "eraser",
+          onPick: () =>
+            void (async () => {
+              const rel = node["box-ink"];
+              if (typeof rel !== "string" || !workspaceRoot) return;
+              await window.box!.trashFile(workspaceRoot, rel);
+              updateNode(node.id, { "box-ink": undefined });
+              const m = new Map(inkMap);
+              m.delete(node.id);
+              setInkMap(m);
+              await saveBoard();
+            })(),
+        });
+      }
       items.push(
         {
           label: "Remove from canvas",
@@ -1082,6 +1143,8 @@ export function App() {
             fileSizes={fileSizes}
             editingNode={editingNode}
             inkMode={inkMode}
+            inkColor={inkColor}
+            inkSize={inkSize}
             inkByNodeId={inkMap}
             fileEdit={
               fileEdit ? { nodeId: fileEdit.nodeId, text: fileEdit.text } : null
@@ -1165,6 +1228,10 @@ export function App() {
         boardOpen={board !== null}
         inkMode={inkMode}
         onInkMode={setInkMode}
+        inkColor={inkColor}
+        onInkColor={setInkColor}
+        inkSize={inkSize}
+        onInkSize={setInkSize}
       />
       {sidebarOpen && (
         <aside className="sidebar">
@@ -1200,7 +1267,7 @@ export function App() {
                 onClick={() => setUnplacedOnly((v) => !v)}
                 title="Show only files not placed on the open board"
               >
-                <Icon name="box" size={14} /> unplaced
+                <Icon name="box" size={14} /> unplaced ({unplacedCount})
               </button>
               <FileTree
                 files={files}
@@ -1208,6 +1275,7 @@ export function App() {
                 onOpen={(p) => void loadBoardFile(p)}
                 unplacedOnly={unplacedOnly}
                 placedPaths={placedPaths}
+                boundInkPaths={boundInkPaths}
               />
               {scaffoldOffered && (
                 <div className="sidebar-scaffold">
