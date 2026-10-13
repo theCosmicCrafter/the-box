@@ -317,6 +317,35 @@ button:hover {
   overflow: hidden;
 }
 
+.node-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -70%);
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9aa3b2;
+  border: 1px solid #3a4150;
+  border-radius: 4px;
+  background: rgba(15, 17, 21, 0.6);
+  pointer-events: none;
+}
+
+.node-audio {
+  position: absolute;
+  inset: 18px 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.node-audio audio {
+  width: 94%;
+  height: 36px;
+}
+
 .node-edit {
   position: absolute;
   inset: 4px;

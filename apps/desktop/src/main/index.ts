@@ -22,7 +22,7 @@ import {
 } from "@box/core";
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
 import { randomUUID } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
+import { createReadStream, watch, type FSWatcher } from "node:fs";
 import {
   mkdir,
   readdir,
@@ -32,6 +32,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { Readable } from "node:stream";
 
 export interface WorkspaceFile {
   path: string; // forward-slash relative
@@ -80,6 +81,8 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       stream: true,
       supportFetchAPI: true,
+      codeCache: true,
+      corsEnabled: true,
     },
   },
 ]);
@@ -337,7 +340,10 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
-  // Media protocol: box://f/<urlencoded workspace-relative path>.
+  // Media protocol: box://f/<urlencoded workspace-relative path>[?v=<mtime>].
+  // Shape follows Obsidian's verified app:// handler (obsidian.asar/main.js):
+  // mtime query param is a cache buster so external edits refresh previews;
+  // Range requests get a 206 stream - required for <video>/<audio> seek.
   protocol.handle("box", async (req) => {
     const root = workspaceRoot;
     if (!root) return new Response("no workspace", { status: 404 });
@@ -347,12 +353,53 @@ void app.whenReady().then(() => {
     );
     const abs = resolveInside(root, rel);
     if (abs === null) return new Response("forbidden", { status: 403 });
-    const bytes = await readFile(abs).catch(() => null);
-    if (bytes === null) return new Response("not found", { status: 404 });
+    const st = await stat(abs).catch(() => null);
+    if (st === null || !st.isFile())
+      return new Response("not found", { status: 404 });
     const ext = rel.split(".").pop()?.toLowerCase() ?? "";
-    return new Response(new Uint8Array(bytes), {
-      headers: { "Content-Type": MIME[ext] ?? "application/octet-stream" },
-    });
+    const type = MIME[ext] ?? "application/octet-stream";
+    const range = req.headers.get("Range");
+    if (range !== null) {
+      const m = /^bytes=(\d*)-(\d*)/.exec(range);
+      if (m === null)
+        return new Response("Range Not Satisfiable", { status: 416 });
+      const start = Number(m[1] ?? "0");
+      const end = Number(m[2] ?? `${st.size - 1}`);
+      if (isNaN(start) || isNaN(end) || start < 0 || end < start)
+        return new Response("Range Not Satisfiable", { status: 416 });
+      const capped = Math.min(end, st.size - 1);
+      return new Response(
+        Readable.toWeb(
+          createReadStream(abs, {
+            start,
+            end: capped,
+          }),
+        ) as ReadableStream,
+        {
+          status: 206,
+          headers: {
+            "Content-Type": type,
+            // corsEnabled on the scheme means fetches from our http:// dev
+            // page (and file:// prod page) are CORS-checked - answer it.
+            "Access-Control-Allow-Origin": "*",
+            "Accept-Ranges": "bytes",
+            "Content-Length": `${capped - start + 1}`,
+            "Content-Range": `bytes ${start}-${capped}/${st.size}`,
+          },
+        },
+      );
+    }
+    return new Response(
+      Readable.toWeb(createReadStream(abs)) as ReadableStream,
+      {
+        headers: {
+          "Content-Type": type,
+          "Access-Control-Allow-Origin": "*",
+          "Accept-Ranges": "bytes",
+          "Content-Length": `${st.size}`,
+        },
+      },
+    );
   });
 
   ipcMain.handle("workspace:open", async (event) => {

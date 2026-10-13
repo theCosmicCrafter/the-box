@@ -22,6 +22,9 @@ const HANDLE_POS: Record<Side, React.CSSProperties> = {
 };
 
 const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif|tiff?)$/i;
+const VIDEO_RE = /\.(mp4|webm|mov)$/i;
+const AUDIO_RE = /\.(mp3|wav|flac|ogg)$/i;
+const PDF_RE = /\.pdf$/i;
 const TEXT_RE = /\.(md|txt)$/i;
 const MIN_NODE = 40;
 
@@ -185,6 +188,9 @@ export function NodeView(props: NodeViewProps) {
   const isImage =
     node.type === "file" &&
     (node["box-media"]?.kind === "image" || IMAGE_RE.test(node.file));
+  const isVideo = node.type === "file" && VIDEO_RE.test(node.file);
+  const isAudio = node.type === "file" && AUDIO_RE.test(node.file);
+  const isPdf = node.type === "file" && PDF_RE.test(node.file);
   const isDoc = node.type === "file" && TEXT_RE.test(node.file);
 
   return (
@@ -216,6 +222,45 @@ export function NodeView(props: NodeViewProps) {
             alt={baseName(node.file)}
             draggable={false}
           />
+          <div className="node-caption">{baseName(node.file)}</div>
+        </>
+      ) : isVideo && props.resolveMedia ? (
+        <>
+          {/* tldraw + AnimRef precedent: video plays inline, muted+looping,
+              so a board of clips reads at a glance without stealing audio. */}
+          <video
+            className="node-media"
+            src={props.resolveMedia(node.file)}
+            muted
+            loop
+            autoPlay
+            playsInline
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+          <div className="node-caption">{baseName(node.file)}</div>
+        </>
+      ) : isAudio && props.resolveMedia ? (
+        <>
+          {/* Heptabase audioCard precedent: a compact player chip. Controls
+              only when selected - ambient boards stay quiet. */}
+          <div className="node-audio">
+            {props.selected ? (
+              <audio
+                src={props.resolveMedia(node.file)}
+                controls
+                onPointerDown={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="node-badge">audio</span>
+            )}
+          </div>
+          <div className="node-caption">{baseName(node.file)}</div>
+        </>
+      ) : isPdf ? (
+        <>
+          {/* pdfjs preview is a later escalation (Heptabase/Obsidian use
+              pdfjs-wasm); a clear badge beats a broken embed for now. */}
+          <div className="node-badge">pdf</div>
           <div className="node-caption">{baseName(node.file)}</div>
         </>
       ) : isDoc && props.excerpt !== undefined ? (

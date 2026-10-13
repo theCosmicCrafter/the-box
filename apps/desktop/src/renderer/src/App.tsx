@@ -124,7 +124,14 @@ export function App() {
   const [editingNode, setEditingNode] = useState<string | null>(null);
 
   // Media URL through the box:// protocol (main validates inside root).
-  const resolveMedia = (rel: string) => `box://f/${encodeURIComponent(rel)}`;
+  // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
+  // the URL changes, so <img>/<video> re-fetch instead of serving a stale
+  // Chromium cache entry.
+  const resolveMedia = (rel: string) => {
+    const mtime = files.find((f) => f.path === rel)?.mtime;
+    const v = mtime === undefined ? "" : `?v=${Math.floor(mtime)}`;
+    return `box://f/${encodeURIComponent(rel)}${v}`;
+  };
 
   const open = async () => {
     if (!window.box) {
