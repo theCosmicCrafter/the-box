@@ -1,10 +1,10 @@
 # T-10 - obsidian-excalidraw-plugin
 
-| | |
-|---|---|
-| **Method** | clone `zsviczian/obsidian-excalidraw-plugin` |
-| **Verified** | 2026-10-12 |
-| **Status** | Complete (storage model) |
+|              |                                              |
+| ------------ | -------------------------------------------- |
+| **Method**   | clone `zsviczian/obsidian-excalidraw-plugin` |
+| **Verified** | 2026-10-12                                   |
+| **Status**   | Complete (storage model)                     |
 
 ## Findings
 
@@ -23,13 +23,14 @@
 
 ## Adopt vs reject
 
-| adopt | reject |
-|---|---|
+| adopt                                                                          | reject                                                                         |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
 | Drawing-inside-note precedent validates our link-note + ink-sidecar philosophy | compressed-opaque data block (ours stays readable text: SVG + markdown + JSON) |
-| Agent-facing canvas protocol design (CLI commands → our MCP tools) | everything-in-one-file (we keep separate readable files) |
+| Agent-facing canvas protocol design (CLI commands → our MCP tools)             | everything-in-one-file (we keep separate readable files)                       |
 
 ## Implication
 
-ZoS's plugin proves the demand: millions of users keep drawings as
-vault files. Our difference: the drawing/arrow semantics stay human-readable
-and every artifact is independently meaningful.
+The plugin proves the demand: users keep drawings as vault files at
+scale (it is among the most-installed Obsidian community plugins). Our
+difference: the drawing/arrow semantics stay human-readable and every
+artifact is independently meaningful.
