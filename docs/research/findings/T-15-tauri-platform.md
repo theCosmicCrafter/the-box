@@ -42,6 +42,24 @@ answer - Electron cannot ship iOS, Tauri 2 mobile can.
   `apps/desktop/package.json`; `chokidar` was already unused (raw `fs.watch`
   was in use).
 
+## WebView2 ≠ Node: the globals audit
+
+The migration's nastiest live-only bug was a **dependency** assumption, not
+our code: `gray-matter` calls `Buffer.from()` in both its parse and stringify
+paths. `Buffer` is a Node global — present in Electron's renderer (Node
+integration) and in vitest (Node env), absent in WebView2. Every frontmatter
+write (edge link notes, note-body saves) threw inside `createEdgePlan` before
+touching disk: no edge, no note, no error surfaced — an unhandled rejection.
+
+Result: gray-matter removed from `box-core`; frontmatter is now an in-house
+`---` fence splitter + `js-yaml` for parse + a deterministic scalar emitter
+(JSON.stringify for non-plain values - JSON is a YAML 1.2 subset). The
+regression test deletes `globalThis.Buffer` so Node-env tests reproduce the
+webview condition. **Rule: anything renderer-reachable must be audited for
+Node-only globals (`Buffer`, `process`, `require`, `__dirname`) — vitest will
+never catch these because it runs under Node.** Verified browser-safe in our
+tree: `js-yaml`, `fflate`, `three`, `perfect-freehand`, `@tauri-apps/api`.
+
 ## Security work the port added (adversarial suite drove it)
 
 - `bound_root`: mutating commands bind to the session root opened by
