@@ -3821,6 +3821,7 @@ dependencies = [
 name = "the-box"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "http-range",
  "notify",
  "opener",

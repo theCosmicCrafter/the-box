@@ -130,19 +130,24 @@ contract.
 **IPC contract** (renderer ↔ Rust; `invoke` returns `{ok:true,...}` or
 `{ok:false,error}` - the bridge wraps it):
 
-| `window.box` method  | Tauri command          | returns                              |
-| -------------------- | ---------------------- | ------------------------------------ |
-| `openWorkspace`      | `fs_open_workspace`    | `{root, files:[{path,size,mtime}]}`  |
-| `rescan`             | `fs_scan`              | same scan payload                    |
-| `lastWorkspace`      | `session_last_root`    | `{root}` or `{root:null}`            |
-| `watchWorkspace`     | `fs_watch_workspace`   | `{ok}` - begins `box:fs-dirty` push  |
-| `onWorkspaceChanged` | `listen(box:fs-dirty)` | event payload `{paths:[PathRel]}`    |
-| `readFile`           | `fs_read`              | UTF-8 lossy string (null only on IO) |
-| `writeFileAtomic`    | `fs_write_atomic`      | `{ok}`                               |
-| `trashFile`          | `fs_trash`             | `{ok}`                               |
-| `appendTombstone`    | `fs_append_tombstone`  | `{ok}`                               |
-| `openExternal`       | `fs_open_external`     | `{ok}` / `{ok:false,error}`          |
-| `revealFile`         | `fs_reveal`            | `{ok}` / `{ok:false,error}`          |
+| `window.box` method  | Tauri command             | returns                                                                                                           |
+| -------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `openWorkspace`      | `open_workspace`          | `{root, files:[{path,size,mtime}]}` - rfd folder picker                                                           |
+| `rescan`             | `scan`                    | same scan payload                                                                                                 |
+| `lastWorkspace`      | `last_workspace`          | `string` or `null`                                                                                                |
+| `watchWorkspace`     | `watch`                   | `{ok}` - begins `box:fs-dirty` push                                                                               |
+| `onWorkspaceChanged` | `listen(box:fs-dirty)`    | event payload `{paths:[PathRel]}`                                                                                 |
+| `readFile`           | `fs_read`                 | UTF-8 lossy string (null only on IO)                                                                              |
+| `writeFileAtomic`    | `fs_write_atomic`         | `{ok}`                                                                                                            |
+| `trashFile`          | `fs_trash`                | `{ok}`                                                                                                            |
+| `appendTombstone`    | `fs_append_tombstone`     | `{ok}` - enforces 16-hex edge ids                                                                                 |
+| `openExternal`       | `open_external`           | `{ok}` / `{ok:false,error}`                                                                                       |
+| `revealFile`         | `reveal_file`             | `{ok}` / `{ok:false,error}`                                                                                       |
+| `importFiles`        | `import_files`            | `{imported:[{rel,src}], skipped:[{src,reason}]}` - copies OS paths into workspace root, sanitizes + dedupes names |
+| `newFile`            | `new_text_file`           | `{ok, path}` - `create_new` auto-numbered, never overwrites                                                       |
+| `newBinaryFile`      | `new_binary_file`         | `{ok, path}` - base64-decoded bytes (paste path), same contract                                                   |
+| `pickFiles`          | `pick_files`              | `string[]` - native multi-picker, `imagesOnly` filter                                                             |
+| `onFileDrop`         | webview `onDragDropEvent` | OS file drops arrive as Tauri events; position is physical px (÷ dpr → CSS → world)                               |
 
 **Renderer:** React 19 + Zustand 5; mounts `box-ui`. `bridge.ts` exposes
 `window.box` over `@tauri-apps/api` `invoke`/`event.listen`; `sync.ts` owns
@@ -186,6 +191,26 @@ sequenceDiagram
   W->>R: event → rescan → classifyFileSet → reconcile → WritePlans → invoke
   R->>R: push deltas to store → invalidate object, re-render
   Note over W,R: board self-write echoes suppressed via serialized-content compare
+```
+
+```mermaid
+sequenceDiagram
+  participant OS as OS drag (Explorer/desktop)
+  participant W as Webview (tauri://drag-drop)
+  participant R as Renderer (App.tsx)
+  participant P as Rust platform
+  participant F as Filesystem
+  OS->>W: drop files at window coords (physical px)
+  W->>R: onDragDropEvent{paths, position}
+  R->>R: ÷devicePixelRatio → viewport-local → screenToWorld(cam)
+  R->>P: invoke import_files{paths}
+  P->>P: sanitize names; inside-workspace srcs skip copy; collision → -N
+  P->>F: fs::copy each source into workspace root
+  P->>R: {imported:[{rel,src}], skipped:[{src,reason}]}
+  R->>P: invoke fs_write_atomic(board with new file nodes)
+  P->>F: temp+rename board
+  W->>R: box:fs-dirty (imported files) → rescan → store
+  Note over R,F: external bytes become workspace truth; nodes never reference outside paths
 ```
 
 ## 5. Concurrency model

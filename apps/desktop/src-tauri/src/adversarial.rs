@@ -276,3 +276,77 @@ fn path_rel_parity_golden_table() {
         assert_eq!(is_path_rel(p), *want, "parity: {p:?}");
     }
 }
+
+// -- import / create_new: the drop + context-menu surface --
+
+#[test]
+fn sanitize_filename_cleans_os_garbage() {
+    assert_eq!(sanitize_filename("photo.png"), "photo.png");
+    assert_eq!(sanitize_filename("a:b|c?d*.png"), "a-b-c-d-.png");
+    assert_eq!(sanitize_filename(".."), "file");
+    assert_eq!(sanitize_filename("."), "file");
+    assert_eq!(sanitize_filename(""), "file");
+    assert_eq!(sanitize_filename("name."), "name");
+    assert_eq!(sanitize_filename("name.  "), "name");
+    assert_eq!(sanitize_filename("dir/x.png"), "dir-x.png");
+    assert_eq!(sanitize_filename("x\u{0}y.png"), "x-y.png");
+    assert!(sanitize_filename(&"a".repeat(500)).len() <= 180);
+}
+
+#[test]
+fn unique_dest_numbers_collisions() {
+    let d = tmpdir("uniq");
+    fs::write(d.join("a.txt"), b"1").unwrap();
+    fs::write(d.join("a-1.txt"), b"1").unwrap();
+    assert_eq!(unique_dest(&d, "a.txt"), d.join("a-2.txt"));
+    assert_eq!(unique_dest(&d, "b.txt"), d.join("b.txt"));
+    // no extension -> plain -N suffix, no stray dot
+    assert_eq!(unique_dest(&d, "README"), d.join("README"));
+    fs::write(d.join("README"), b"1").unwrap();
+    assert_eq!(unique_dest(&d, "README"), d.join("README-1"));
+}
+
+#[test]
+fn import_one_copies_outside_and_dedupes_inside() {
+    let ws = tmpdir("imp-ws");
+    let outside = tmpdir("imp-out");
+    // NTFS can't host ':'/'?' names at all (os error 87 here proves it), so
+    // sanitize_filename is exercised in its own test; import still must
+    // produce a PathRel from any creatable name.
+    fs::write(outside.join("my photo.png"), b"PNG").unwrap();
+    let rel = import_one(&ws, &outside.join("my photo.png")).unwrap();
+    assert!(is_path_rel(&rel), "imported rel must be a PathRel: {rel}");
+    assert_eq!(fs::read(ws.join(&rel)).unwrap(), b"PNG");
+    // same basename from a different source dir -> -1 suffix, no clobber
+    let outside2 = tmpdir("imp-out2");
+    fs::write(outside2.join("my photo.png"), b"PNG2").unwrap();
+    let rel2 = import_one(&ws, &outside2.join("my photo.png")).unwrap();
+    assert_ne!(rel, rel2);
+    assert_eq!(fs::read(ws.join(&rel2)).unwrap(), b"PNG2");
+    // a file already inside the workspace: no copy, returns same rel
+    fs::write(ws.join("inside.md"), b"hi").unwrap();
+    let rel3 = import_one(&ws, &ws.join("inside.md")).unwrap();
+    assert_eq!(rel3, "inside.md");
+    // missing and directories are clean errors, never panics
+    assert!(import_one(&ws, &outside.join("nope.bin")).is_err());
+    assert!(import_one(&ws, &outside).is_err());
+}
+
+#[test]
+fn create_new_never_overwrites() {
+    let ws = tmpdir("new");
+    let p1 = create_new(&ws, "", "untitled", "md", b"a").unwrap();
+    assert_eq!(p1, "untitled.md");
+    let p2 = create_new(&ws, "", "untitled", "md", b"b").unwrap();
+    assert_eq!(p2, "untitled-1.md");
+    // first file's bytes are untouched
+    assert_eq!(fs::read(ws.join("untitled.md")).unwrap(), b"a");
+    // dir creation + traversal rejection
+    let p3 = create_new(&ws, "notes/daily", "doc", "txt", b"c").unwrap();
+    assert_eq!(p3, "notes/daily/doc.txt");
+    assert!(create_new(&ws, "../escape", "x", "txt", b"").is_err());
+    assert!(create_new(&ws, "a/bad:dir", "x", "txt", b"").is_err());
+    // hostile stem/ext get sanitized into something valid
+    let p4 = create_new(&ws, "", "..|x", ".m?d", b"z").unwrap();
+    assert!(is_path_rel(&p4), "created path must be PathRel: {p4}");
+}

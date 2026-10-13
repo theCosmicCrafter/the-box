@@ -19,6 +19,9 @@ export interface ViewportProps {
   onDropFile?: ((path: string, wx: number, wy: number) => void) | undefined;
   /** Double-click on empty canvas, at world coordinates. */
   onEmptyDoubleClick?: ((wx: number, wy: number) => void) | undefined;
+  /** Right-click on empty canvas: world coords + client coords (menus). */
+  onBackgroundMenu?:
+    ((wx: number, wy: number, cx: number, cy: number) => void) | undefined;
   children: ReactNode;
   viewportRef?: RefObject<HTMLDivElement | null>;
   className?: string;
@@ -130,6 +133,20 @@ export function Viewport(props: ViewportProps) {
     props.onEmptyDoubleClick?.(Math.round(w.x), Math.round(w.y));
   };
 
+  const onContextMenu = (e: React.MouseEvent) => {
+    // Nodes handle their own menus (they stopPropagation). Anything else
+    // on the surface - empty canvas, edge lines - opens the canvas menu.
+    if ((e.target as HTMLElement).closest?.("[data-node-id]")) return;
+    e.preventDefault();
+    const w = worldAt(e.clientX, e.clientY);
+    props.onBackgroundMenu?.(
+      Math.round(w.x),
+      Math.round(w.y),
+      e.clientX,
+      e.clientY,
+    );
+  };
+
   return (
     <div
       ref={(el) => {
@@ -148,6 +165,7 @@ export function Viewport(props: ViewportProps) {
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
     >
       <div
         className="canvas-world"

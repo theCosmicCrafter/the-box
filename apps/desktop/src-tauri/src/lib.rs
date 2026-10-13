@@ -446,6 +446,286 @@ fn platform() -> &'static str {
     std::env::consts::OS
 }
 
+// ---- import / create / pick (drag-drop + context-menu verbs) ----
+
+// Files arriving from outside (OS drag-drop, file picker) are COPIED into
+// the workspace - nodes may only point at workspace-rel paths, and
+// files-are-truth means no symlinks or external references.
+#[derive(Serialize)]
+struct ImportResult {
+    ok: bool,
+    imported: Vec<ImportedFile>,
+    skipped: Vec<SkippedFile>,
+}
+#[derive(Serialize)]
+struct ImportedFile {
+    rel: String,
+    src: String,
+}
+#[derive(Serialize)]
+struct SkippedFile {
+    src: String,
+    reason: String,
+}
+#[derive(Serialize)]
+struct FileResult {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+fn session_root(state: &AppState) -> Result<PathBuf, CmdResult> {
+    state
+        .workspace_root
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| cmd_err("no workspace open"))
+}
+
+// A filename dragged in from the OS can contain chars PathRel rejects
+// (':', '|', controls, trailing dots). Import sanitizes rather than
+// rejecting - the user's file lands under a cleaned name.
+fn sanitize_filename(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|c| {
+            if FORBIDDEN.contains(&c) || c < ' ' || c == '/' {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    while out.ends_with('.') || out.ends_with(' ') {
+        out.pop();
+    }
+    if out.is_empty() || out == "." || out == ".." {
+        out = "file".to_string();
+    }
+    out.truncate(180); // stay comfortably under NTFS 255
+    out
+}
+
+fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]), // ext includes the dot
+        _ => (name, ""),
+    };
+    for i in 0..9999u32 {
+        let cand = if i == 0 {
+            name.to_string()
+        } else {
+            format!("{stem}-{i}{ext}")
+        };
+        let p = dir.join(&cand);
+        if !p.exists() {
+            return p;
+        }
+    }
+    dir.join(format!("{stem}-{}{ext}", uuid()))
+}
+
+// Copy src into `root` at top level; returns the workspace-rel path.
+// A src already inside the workspace resolves to its existing rel path -
+// dragging a file from an Explorer window of the workspace must not
+// duplicate it.
+fn import_one(root: &Path, src: &Path) -> Result<String, String> {
+    let canon_src = src.canonicalize().map_err(|e| format!("unreadable: {e}"))?;
+    if canon_src.is_dir() {
+        return Err("is a directory".into());
+    }
+    if !canon_src.is_file() {
+        return Err("not a regular file".into());
+    }
+    let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
+    if let Ok(rel) = canon_src.strip_prefix(&canon_root) {
+        return Ok(rel.to_string_lossy().replace('\\', "/"));
+    }
+    let name = sanitize_filename(&src.file_name().unwrap_or_default().to_string_lossy());
+    let dest = unique_dest(root, &name);
+    fs::copy(&canon_src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest
+        .strip_prefix(root)
+        .map_err(|e| e.to_string())?
+        .to_string_lossy()
+        .replace('\\', "/"))
+}
+
+#[tauri::command]
+fn import_files(state: State<'_, AppState>, paths: Vec<String>) -> ImportResult {
+    let root = match session_root(&state) {
+        Ok(r) => r,
+        Err(_) => {
+            return ImportResult {
+                ok: false,
+                imported: vec![],
+                skipped: paths
+                    .iter()
+                    .map(|p| SkippedFile {
+                        src: p.clone(),
+                        reason: "no workspace open".into(),
+                    })
+                    .collect(),
+            }
+        }
+    };
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    for p in paths {
+        match import_one(&root, Path::new(&p)) {
+            Ok(rel) => imported.push(ImportedFile { rel, src: p }),
+            Err(reason) => skipped.push(SkippedFile { src: p, reason }),
+        }
+    }
+    ImportResult {
+        ok: true,
+        imported,
+        skipped,
+    }
+}
+
+// create_new semantics: picks stem.ext / stem-1.ext / ... under dir and
+// fails rather than overwrite - "New document" must never clobber an
+// existing file with a guessed name.
+fn create_new(
+    root: &Path,
+    dir_rel: &str,
+    stem: &str,
+    ext: &str,
+    bytes: &[u8],
+) -> Result<String, String> {
+    if !(dir_rel.is_empty() || is_path_rel(dir_rel)) {
+        return Err("bad dir".into());
+    }
+    let dir = if dir_rel.is_empty() {
+        root.to_path_buf()
+    } else {
+        resolve_inside(root, dir_rel).ok_or("bad dir")?
+    };
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem_s = sanitize_filename(stem);
+    let ext_s: String = ext
+        .trim_start_matches('.')
+        .chars()
+        .map(|c| {
+            if FORBIDDEN.contains(&c) || c < ' ' || c == '/' {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    for i in 0..9999u32 {
+        let name = if i == 0 {
+            format!("{stem_s}.{ext_s}")
+        } else {
+            format!("{stem_s}-{i}.{ext_s}")
+        };
+        let p = dir.join(&name);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p)
+        {
+            Ok(mut f) => {
+                use std::io::Write;
+                f.write_all(bytes).map_err(|e| e.to_string())?;
+                let rel = if dir_rel.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{dir_rel}/{name}")
+                };
+                return Ok(rel);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Err("no free filename".into())
+}
+
+#[tauri::command]
+fn new_text_file(
+    state: State<'_, AppState>,
+    dir: String,
+    stem: String,
+    ext: String,
+    content: String,
+) -> FileResult {
+    match session_root(&state)
+        .and_then(|r| create_new(&r, &dir, &stem, &ext, content.as_bytes()).map_err(cmd_err))
+    {
+        Ok(path) => FileResult {
+            ok: true,
+            path: Some(path),
+            error: None,
+        },
+        Err(e) => FileResult {
+            ok: false,
+            path: None,
+            error: e.error,
+        },
+    }
+}
+
+#[tauri::command]
+fn new_binary_file(
+    state: State<'_, AppState>,
+    dir: String,
+    stem: String,
+    ext: String,
+    b64: String,
+) -> FileResult {
+    use base64::Engine;
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(&b64) {
+        Ok(b) => b,
+        Err(e) => {
+            return FileResult {
+                ok: false,
+                path: None,
+                error: Some(format!("bad base64: {e}")),
+            }
+        }
+    };
+    match session_root(&state)
+        .and_then(|r| create_new(&r, &dir, &stem, &ext, &bytes).map_err(cmd_err))
+    {
+        Ok(path) => FileResult {
+            ok: true,
+            path: Some(path),
+            error: None,
+        },
+        Err(e) => FileResult {
+            ok: false,
+            path: None,
+            error: e.error,
+        },
+    }
+}
+
+// Native multi-picker feeding import_files (drag-drop's keyboard cousin).
+#[tauri::command]
+fn pick_files(images_only: bool) -> Vec<String> {
+    let mut d = rfd::FileDialog::new().set_title("Import into workspace");
+    if images_only {
+        d = d.add_filter(
+            "Images",
+            &[
+                "png", "jpg", "jpeg", "webp", "gif", "avif", "tif", "tiff", "bmp", "svg", "exr",
+                "hdr", "dng", "raw",
+            ],
+        );
+    }
+    d.pick_files()
+        .unwrap_or_default()
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
+}
+
 // ---- box:// media protocol (port of the Electron protocol.handle) ----
 // box://f/<percent-encoded rel path>[?v=<mtime>] on macOS/iOS/Linux;
 // https://box.localhost/f/<...> on Windows (WebView2 custom-scheme shape).
@@ -589,6 +869,10 @@ pub fn run() {
             open_external,
             reveal_file,
             platform,
+            import_files,
+            new_text_file,
+            new_binary_file,
+            pick_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running The Box");

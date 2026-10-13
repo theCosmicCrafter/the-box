@@ -49,6 +49,14 @@ export interface BoardViewProps {
   onOpenFile?: (file: string) => void;
   /** Alt+double-click on a file node -> OS file manager. */
   onRevealFile?: (file: string) => void;
+  /** Right-click on empty canvas (world + client coords for menus). */
+  onCanvasMenu?: (wx: number, wy: number, cx: number, cy: number) => void;
+  /** Right-click on a node (client coords for menus). */
+  onNodeMenu?: (node: CanvasNode, cx: number, cy: number) => void;
+  /** Camera stream - the platform needs live camera for OS-drop->world. */
+  onCameraChange?: (cam: Camera) => void;
+  /** External ref to the viewport element (for drop coord conversion). */
+  viewportRef?: React.RefObject<HTMLDivElement | null>;
   /** Edge draft released over empty canvas - "connect to nothing yet". */
   onDropEdgeAt?: (
     fromId: string,
@@ -83,7 +91,15 @@ function sideToward(node: CanvasNode, wx: number, wy: number): Side {
 
 export function BoardView(props: BoardViewProps) {
   const [cam, setCam] = useState<Camera>(DEFAULT_CAMERA);
-  const vpRef = useRef<HTMLDivElement | null>(null);
+  const innerVpRef = useRef<HTMLDivElement | null>(null);
+  // Callers (the app) get the same element for drop coordinate math.
+  const vpRef = props.viewportRef ?? innerVpRef;
+
+  // Camera stream outward: Tauri file-drop events land as window coords
+  // and need the live camera to convert to world space.
+  useEffect(() => {
+    props.onCameraChange?.(cam);
+  }, [cam]);
 
   // Open = fit everything (mounted once per board via key={boardPath}).
   useEffect(() => {
@@ -188,6 +204,7 @@ export function BoardView(props: BoardViewProps) {
       viewportRef={vpRef}
       onDropFile={props.onDropFile}
       onEmptyDoubleClick={props.onEmptyDoubleClick}
+      onBackgroundMenu={props.onCanvasMenu}
     >
       <EdgeLayer
         board={props.board}
@@ -224,6 +241,7 @@ export function BoardView(props: BoardViewProps) {
           onInspect={props.onInspectNode}
           onOpenExternal={props.onOpenFile}
           onReveal={props.onRevealFile}
+          onContextMenu={props.onNodeMenu}
           onDraftStart={(nodeId, side) => {
             const w = anchor(n, side);
             setDraft({

@@ -60,6 +60,9 @@ export interface NodeViewProps {
   onOpenExternal?: ((file: string) => void) | undefined;
   /** Alt+double-click on a file node -> reveal in the OS file manager. */
   onReveal?: ((file: string) => void) | undefined;
+  /** Right-click on the node -> context menu at client coords. */
+  onContextMenu?:
+    ((node: CanvasNode, cx: number, cy: number) => void) | undefined;
 }
 
 function fmtSize(n: number): string {
@@ -524,6 +527,11 @@ export function NodeView(props: NodeViewProps) {
           else if (kind === "image") props.onInspect?.(node.id);
           else props.onOpenExternal?.(node.file);
         }
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onContextMenu?.(node, e.clientX, e.clientY);
       }}
     >
       {node.type === "file" && kind !== null && (

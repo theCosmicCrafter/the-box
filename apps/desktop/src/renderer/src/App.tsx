@@ -28,14 +28,17 @@ import {
   serializeBoard,
   serializeLinkNote,
 } from "@box/core";
-import type { WorkspaceFile } from "@box/ui";
+import type { Camera, MenuItem, MenuSpec, WorkspaceFile } from "@box/ui";
 import {
   BoardView,
+  ContextMenu,
+  DEFAULT_CAMERA,
   FileTree,
   Icon,
   ImageInspector,
   NotePanel,
   Ribbon,
+  screenToWorld,
   useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -79,6 +82,27 @@ declare global {
       ) => Promise<{ ok: boolean; error?: string }>;
       openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
       revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+      importFiles: (paths: string[]) => Promise<{
+        ok: boolean;
+        imported: { rel: string; src: string }[];
+        skipped: { src: string; reason: string }[];
+      }>;
+      newFile: (
+        dir: string,
+        stem: string,
+        ext: string,
+        content: string,
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+      newBinaryFile: (
+        dir: string,
+        stem: string,
+        ext: string,
+        b64: string,
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+      pickFiles: (imagesOnly: boolean) => Promise<string[]>;
+      onFileDrop: (
+        cb: (paths: string[], x: number, y: number) => void,
+      ) => Promise<() => void>;
     };
   }
 }
@@ -156,6 +180,11 @@ export function App() {
   // Image inspector (PureRef/Eagle): the file path currently inspected.
   const [inspectPath, setInspectPath] = useState<string | null>(null);
   const newBoardInput = useRef<HTMLInputElement>(null);
+  // Canvas context menu + the camera/viewport handles OS file drops need
+  // to convert window coords into world space.
+  const [menu, setMenu] = useState<MenuSpec | null>(null);
+  const camRef = useRef<Camera>(DEFAULT_CAMERA);
+  const vpElRef = useRef<HTMLDivElement | null>(null);
 
   // Media URL through the box:// protocol (main validates inside root).
   // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
@@ -286,6 +315,12 @@ export function App() {
       useBoxStore.getState().setProblems([`board create failed: ${r.error}`]);
     }
   };
+
+  // CDP verification handle (tools/cdp-eval.mjs drives real assertions).
+  useEffect(() => {
+    (window as unknown as { __boxStore: typeof useBoxStore }).__boxStore =
+      useBoxStore;
+  }, []);
 
   // Launch restore (Obsidian opens your last vault). Once per mount;
   // readLastWorkspace in main already stat-checks the dir still exists.
@@ -515,18 +550,268 @@ export function App() {
   };
 
   const placeFile = async (path: string, wx: number, wy: number) => {
-    const node: CanvasNode = {
-      id: newNodeId(),
-      type: "file",
-      x: Math.round(wx),
-      y: Math.round(wy),
-      width: 260,
-      height: 180,
-      file: path,
-    };
-    addNode(node);
+    await placeFiles([path], wx, wy);
+  };
+
+  // N files cascade-diagonal from the drop point; one board write total.
+  const placeFiles = async (paths: string[], wx: number, wy: number) => {
+    for (let i = 0; i < paths.length; i++) {
+      const node: CanvasNode = {
+        id: newNodeId(),
+        type: "file",
+        x: Math.round(wx) + i * 40,
+        y: Math.round(wy) + i * 40,
+        width: 260,
+        height: 180,
+        file: paths[i]!,
+      };
+      addNode(node);
+    }
     await saveBoard();
   };
+
+  // External files are COPIED into the workspace (files-are-truth: nodes
+  // only ever reference workspace-rel paths). Skipped entries are surfaced,
+  // never silent.
+  const importAndPlace = async (srcPaths: string[], wx: number, wy: number) => {
+    if (!window.box || srcPaths.length === 0) return;
+    const r = await window.box.importFiles(srcPaths);
+    const s = useBoxStore.getState();
+    if (!r.ok || r.skipped.length > 0) {
+      s.setProblems(r.skipped.map((x) => `skipped ${x.src}: ${x.reason}`));
+    }
+    if (r.imported.length > 0) {
+      await placeFiles(
+        r.imported.map((x) => x.rel),
+        wx,
+        wy,
+      );
+      await rescan();
+    }
+  };
+
+  // Clipboard → canvas: image items become real .png files (pasted bytes
+  // are user content, so they land as files like everything else); text
+  // becomes a text node already carrying the content.
+  const pasteAt = async (wx: number, wy: number) => {
+    if (!navigator.clipboard?.read) {
+      useBoxStore.getState().setProblems(["clipboard read unsupported"]);
+      return;
+    }
+    let items: ClipboardItem[];
+    try {
+      items = await navigator.clipboard.read();
+    } catch (e) {
+      useBoxStore.getState().setProblems([`clipboard read denied: ${e}`]);
+      return;
+    }
+    for (const item of items) {
+      const imgType = item.types.find((t) => t.startsWith("image/"));
+      if (imgType) {
+        const blob = await item.getType(imgType);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x8000)
+          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const r = await window.box!.newBinaryFile(
+          "",
+          "paste",
+          "png",
+          btoa(bin),
+        );
+        if (r.ok && r.path) await placeFile(r.path, wx, wy);
+        else
+          useBoxStore
+            .getState()
+            .setProblems([`paste failed: ${r.error ?? "unknown"}`]);
+        return;
+      }
+      if (item.types.includes("text/plain")) {
+        const text = await (await item.getType("text/plain")).text();
+        const node: CanvasNode = {
+          id: newNodeId(),
+          type: "text",
+          x: Math.round(wx),
+          y: Math.round(wy),
+          width: 260,
+          height: 120,
+          text: text.slice(0, 4000),
+        };
+        addNode(node);
+        await saveBoard();
+        return;
+      }
+    }
+    useBoxStore.getState().setProblems(["clipboard: nothing placeable"]);
+  };
+
+  // ---- right-click menus ----
+
+  const canvasMenu = (wx: number, wy: number, cx: number, cy: number) => {
+    const items: MenuItem[] = [
+      {
+        label: "New text note",
+        icon: "type",
+        hint: "dbl-click",
+        onPick: () => void createTextNode(wx, wy),
+      },
+      {
+        label: "New document",
+        icon: "fileText",
+        onPick: () =>
+          void (async () => {
+            const r = await window.box!.newFile("", "untitled", "md", "");
+            if (r.ok && r.path) await placeFile(r.path, wx, wy);
+            else if (!r.ok)
+              useBoxStore
+                .getState()
+                .setProblems([`new document failed: ${r.error}`]);
+            await rescan();
+          })(),
+      },
+      {
+        label: "New board",
+        icon: "board",
+        onPick: () =>
+          void (async () => {
+            const r = await window.box!.newFile(
+              ".box",
+              "board",
+              "box.canvas",
+              serializeBoard({
+                nodes: [],
+                edges: [],
+                "box-format": BOARD_FORMAT,
+              }),
+            );
+            if (r.ok && r.path) {
+              await rescan();
+              await loadBoardFile(r.path);
+            } else if (!r.ok) {
+              useBoxStore
+                .getState()
+                .setProblems([`new board failed: ${r.error}`]);
+            }
+          })(),
+      },
+      {
+        label: "Import files…",
+        icon: "import",
+        onPick: () =>
+          void window
+            .box!.pickFiles(false)
+            .then((p) => importAndPlace(p, wx, wy)),
+      },
+      {
+        label: "Import image…",
+        icon: "image",
+        onPick: () =>
+          void window
+            .box!.pickFiles(true)
+            .then((p) => importAndPlace(p, wx, wy)),
+      },
+      {
+        label: "Paste",
+        icon: "clipboard",
+        hint: "ctrl+v",
+        disabled: !("clipboard" in navigator && "read" in navigator.clipboard),
+        onPick: () => void pasteAt(wx, wy),
+      },
+    ];
+    setMenu({ x: cx, y: cy, items });
+  };
+
+  const nodeMenu = (node: CanvasNode, cx: number, cy: number) => {
+    const items: MenuItem[] = [];
+    if (node.type === "file") {
+      const file = node.file;
+      items.push(
+        {
+          label: "Open externally",
+          icon: "external",
+          hint: "dbl-click",
+          onPick: () => void window.box?.openExternal(file),
+        },
+        {
+          label: "Reveal in Explorer",
+          icon: "folderOpen",
+          hint: "alt+dbl",
+          onPick: () => void window.box?.revealFile(file),
+        },
+      );
+      if (fileKind(file) === "image") {
+        items.push({
+          label: "Inspect",
+          icon: "image",
+          onPick: () => setInspectPath(file),
+        });
+      }
+      items.push(
+        {
+          label: "Remove from canvas",
+          icon: "file",
+          onPick: () => void deleteNode(node.id),
+        },
+        {
+          label: "Move file to Recycle Bin",
+          icon: "trash",
+          danger: true,
+          onPick: () =>
+            void (async () => {
+              const r = await window.box!.trashFile(
+                useBoxStore.getState().workspaceRoot!,
+                file,
+              );
+              if (r.ok) {
+                // The node would render broken (I-7); an intentional delete
+                // removes the placement too - the watcher reconciles edges.
+                removeNode(node.id);
+                await saveBoard();
+                await rescan();
+              } else {
+                useBoxStore
+                  .getState()
+                  .setProblems([`trash failed: ${r.error}`]);
+              }
+            })(),
+        },
+      );
+    } else {
+      items.push({
+        label: "Remove from canvas",
+        icon: "file",
+        onPick: () => void deleteNode(node.id),
+      });
+    }
+    setMenu({ x: cx, y: cy, items });
+  };
+
+  // OS drag-drop: Tauri intercepts file drops (HTML5 never sees them) and
+  // reports physical-pixel positions - convert through dpr + the live
+  // camera into world coords, import the files, place the nodes.
+  useEffect(() => {
+    const api = window.box;
+    if (!workspaceRoot || !api?.onFileDrop) return;
+    let un: (() => void) | null = null;
+    void api
+      .onFileDrop((paths, x, y) => {
+        const el = vpElRef.current;
+        if (!el || paths.length === 0) return;
+        const r = el.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = screenToWorld(
+          camRef.current,
+          x / dpr - r.left,
+          y / dpr - r.top,
+        );
+        void importAndPlace(paths, w.x, w.y);
+      })
+      .then((u) => {
+        un = u;
+      });
+    return () => un?.();
+    // importAndPlace reads fresh state internally; workspace gate only
+  }, [workspaceRoot]);
 
   // Arrow released over empty canvas: create the target text node and the
   // edge in one plan (note write, then board write - I-1 ordering holds).
@@ -635,6 +920,12 @@ export function App() {
             onSelectEdge={(id) => void selectEdge(id)}
             onDropFile={(p, x, y) => void placeFile(p, x, y)}
             onEmptyDoubleClick={(x, y) => void createTextNode(x, y)}
+            onCanvasMenu={canvasMenu}
+            onNodeMenu={nodeMenu}
+            onCameraChange={(c) => {
+              camRef.current = c;
+            }}
+            viewportRef={vpElRef}
             onDropEdgeAt={(f, s, x, y) => void dropEdgeAt(f, s, x, y)}
             onInspectNode={(id) => {
               const n = board.nodes.find((x) => x.id === id);
@@ -735,6 +1026,7 @@ export function App() {
         </aside>
       )}
       <div className="wb-content">
+        {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
         {problems.length > 0 && (
           <div className="problems">
             {problems.map((p, i) => (

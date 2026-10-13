@@ -5,8 +5,9 @@
 // (Windows custom schemes serve at https://box.localhost, real box://
 // elsewhere).
 
-import { invoke } from "@tauri-apps/api/core";
 import type { Delta, ProblemItem } from "@box/core";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { onWorkspaceChanged, watchSyncSession } from "./sync.js";
 
 export interface WorkspaceFile {
@@ -31,6 +32,18 @@ export interface WorkspaceChanged {
 
 interface CmdResult {
   ok: boolean;
+  error?: string;
+}
+
+export interface ImportResult {
+  ok: boolean;
+  imported: { rel: string; src: string }[];
+  skipped: { src: string; reason: string }[];
+}
+
+export interface FileResult {
+  ok: boolean;
+  path?: string;
   error?: string;
 }
 
@@ -65,5 +78,34 @@ export async function installBoxBridge(): Promise<void> {
       invoke("open_external", { rel }),
     revealFile: (rel: string): Promise<CmdResult> =>
       invoke("reveal_file", { rel }),
+    // Copy OS-side files into the workspace (drag-drop, picker results).
+    importFiles: (paths: string[]): Promise<ImportResult> =>
+      invoke("import_files", { paths }),
+    newFile: (
+      dir: string,
+      stem: string,
+      ext: string,
+      content: string,
+    ): Promise<FileResult> =>
+      invoke("new_text_file", { dir, stem, ext, content }),
+    newBinaryFile: (
+      dir: string,
+      stem: string,
+      ext: string,
+      b64: string,
+    ): Promise<FileResult> =>
+      invoke("new_binary_file", { dir, stem, ext, b64 }),
+    pickFiles: (imagesOnly: boolean): Promise<string[]> =>
+      invoke("pick_files", { imagesOnly }),
+    // OS-level drag-drop (Tauri intercepts it - HTML5 dataTransfer drops
+    // only carry in-app payloads). Position is physical pixels; callers
+    // divide by devicePixelRatio for CSS coords.
+    onFileDrop: (
+      cb: (paths: string[], x: number, y: number) => void,
+    ): Promise<() => void> =>
+      getCurrentWebview().onDragDropEvent((ev) => {
+        const p: DragDropEvent = ev.payload;
+        if (p.type === "drop") cb(p.paths, p.position.x, p.position.y);
+      }),
   };
 }

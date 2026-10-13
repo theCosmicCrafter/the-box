@@ -6,7 +6,13 @@
 // Session memory (prev snapshot, knownNotes) is session-scoped exactly as
 // before: absent on restart means conservative never-seen.
 
-import type { Board, LinkNote, ParseResult, WorkspaceScan } from "@box/core";
+import type {
+  Board,
+  LinkNote,
+  ParseResult,
+  WorkspaceScan,
+  WriteStep,
+} from "@box/core";
 import {
   baseName,
   classifyFileSet,

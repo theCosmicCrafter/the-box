@@ -17,7 +17,12 @@ export type IconName =
   | "filePlus"
   | "panelLeft"
   | "chevronRight"
-  | "chevronDown";
+  | "chevronDown"
+  | "import"
+  | "clipboard"
+  | "trash"
+  | "external"
+  | "type";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   folder: (
@@ -103,6 +108,40 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   chevronRight: <path d="m9 18 6-6-6-6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
+  import: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
+    </>
+  ),
+  clipboard: (
+    <>
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </>
+  ),
+  external: (
+    <>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+    </>
+  ),
+  type: (
+    <>
+      <path d="M4 7V4h16v3" />
+      <path d="M9 20h6" />
+      <path d="M12 4v16" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
