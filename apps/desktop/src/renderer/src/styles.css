@@ -814,3 +814,32 @@ button:hover {
   color: #4d5665;
   cursor: default;
 }
+
+/* Scaffold offer - sits under the tree when the workspace has no ACCESS dirs */
+.sidebar-scaffold {
+  padding: 8px 10px;
+  border-top: 1px solid #22262e;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sidebar-scaffold button {
+  background: none;
+  border: 1px dashed #3a4150;
+  color: #d8dce4;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+.sidebar-scaffold button:hover {
+  border-color: #6ea3ff;
+  color: #9fc0ff;
+}
+.sidebar-scaffold-hint {
+  font-size: 10px;
+  color: #7a8291;
+  line-height: 1.4;
+}

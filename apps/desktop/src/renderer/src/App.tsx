@@ -17,8 +17,10 @@ import {
   BOARD_FORMAT,
   createEdgePlan,
   deleteEdgePlan,
+  hasScaffoldDirs,
   isPathRel,
   linkNoteName,
+  missingScaffoldFiles,
   newNodeId,
   parseBoard,
   parseLinkNote,
@@ -214,6 +216,27 @@ export function App() {
         .setFiles([...files, { path: rel, size: 0, mtime: Date.now() }]);
       await loadBoardFile(rel);
     }
+  };
+
+  // Scaffold offer (ACCESS/LYT): visible only when the workspace has no
+  // ACCESS dirs at all, and only ever writes create-if-missing seeds.
+  const scaffoldOffered =
+    workspaceRoot !== null && !hasScaffoldDirs(files.map((f) => f.path));
+  const scaffold = async () => {
+    const root = useBoxStore.getState().workspaceRoot;
+    if (!root || !window.box) return;
+    const existing = new Set(useBoxStore.getState().files.map((f) => f.path));
+    const missing = missingScaffoldFiles(existing);
+    for (const f of missing) {
+      const r = await window.box.writeFileAtomic(root, f.path, f.content);
+      if (!r.ok) {
+        useBoxStore
+          .getState()
+          .setProblems([`scaffold failed at ${f.path}: ${r.error}`]);
+        return;
+      }
+    }
+    await rescan();
   };
 
   // New board: write the empty canvas file, then open it.
@@ -630,6 +653,16 @@ export function App() {
                 activePath={boardPath ?? undefined}
                 onOpen={(p) => void loadBoardFile(p)}
               />
+              {scaffoldOffered && (
+                <div className="sidebar-scaffold">
+                  <button onClick={() => void scaffold()}>
+                    Scaffold workspace
+                  </button>
+                  <span className="sidebar-scaffold-hint">
+                    atlas / calendar / cards / extras / sources / spaces
+                  </span>
+                </div>
+              )}
             </>
           )}
         </aside>
