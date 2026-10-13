@@ -96,6 +96,7 @@ export function App() {
     board,
     boardPath,
     boardProblems,
+    problems,
     setWorkspace,
     setFiles,
     openBoard,
@@ -126,10 +127,22 @@ export function App() {
   const resolveMedia = (rel: string) => `box://f/${encodeURIComponent(rel)}`;
 
   const open = async () => {
-    const r = await window.box?.openWorkspace();
+    if (!window.box) {
+      useBoxStore
+        .getState()
+        .setProblems(["bridge missing - preload did not load"]);
+      return;
+    }
+    const r = await window.box.openWorkspace();
     if (r) {
       setWorkspace(r.root, r.files);
-      await window.box?.watchWorkspace(r.root);
+      const w = await window.box.watchWorkspace(r.root);
+      if (!w.ok)
+        useBoxStore
+          .getState()
+          .setProblems([
+            `watcher unavailable: ${w.error} - manual rescan only`,
+          ]);
     }
   };
 
@@ -487,6 +500,15 @@ export function App() {
           Objects are files. Arrows are notes. Edits round-trip.
         </p>
       </header>
+      {problems.length > 0 && (
+        <div className="problems">
+          {problems.map((p, i) => (
+            <div key={i} className="problem">
+              {p}
+            </div>
+          ))}
+        </div>
+      )}
       {workspaceRoot === null ? (
         <div className="welcome">
           <p>Open a folder to make it a workspace.</p>

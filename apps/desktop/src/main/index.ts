@@ -308,7 +308,7 @@ function createWindow(): void {
     title: "The Box",
     backgroundColor: "#0f1115",
     webPreferences: {
-      preload: join(import.meta.dirname, "../preload/index.mjs"),
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
