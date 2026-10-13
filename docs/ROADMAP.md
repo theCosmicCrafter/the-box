@@ -35,6 +35,12 @@ reopen with index deleted → identical state; Christian does it unaided.
       edge labels/types, jump-to-link, audio objects, CM6 note editor)
 - [ ] Ink sidecar as first-class linkable object (FR-307 partial)
 - [ ] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs
+- [ ] Undo-as-file-data: persist the op log in or beside `.box.canvas` so undo
+      survives restart (T-14, Tietze pattern; fits files-are-truth)
+- [ ] Regions with parameters: group/frame nodes carry per-region config,
+      generalizing the Box holding area (T-14, Ferrate biome pattern)
+- [ ] Ink smoothing polish: stroke quality over feature count (T-14,
+      InfinitiCanvas/perfect-freehand evidence)
 
 **Exit:** 500-object board stays ≥30fps; a week of real use on TheBox-Dev
 without manual file surgery.
@@ -45,6 +51,12 @@ without manual file surgery.
       multi-board consistency, broken-edge recovery, open-with prefs,
       spatial audio modes, ink colors)
 - [ ] Invariants I-6..I-9 green; problem-items UI for malformed notes
+- [ ] OS-native icon fallback for typed tiles via `app.getFileIcon` IPC
+      (T-14, Eagle native.js analog: blend/c4d/dwg and friends)
+- [ ] Deferred parser queue, gated on a real file needing it: ag-psd (PSD),
+      camera-RAW embedded-JPEG extraction, HEIC/JXL decode (T-9/T-14)
+- [ ] Windowed/chunked board processing for very large boards (T-14,
+      AAAI Infinite-Canvas technique; also feeds the 3D north star)
 
 **Exit:** rename/move/delete chaos test (scripted, 100 random ops) leaves
 zero orphaned truth; dogfood clearance for Christian's real vault.
@@ -55,6 +67,11 @@ zero orphaned truth; dogfood clearance for Christian's real vault.
       confidence-gated placement suggestion, semantic related-items,
       box-mcp exposure, graceful offline)
 - [ ] LanceDB index; embedding pipeline for the workspace
+- [ ] Typed edge payloads: link-note `type:` gains executable semantics
+      (prompt ref, dataflow) without breaking arrows-are-notes (T-14,
+      Koll.ai pattern)
+- [ ] AI/CLI sessions as canvas nodes (Von/Ollama/ComfyUI); local-only
+      invariant already holds (T-14, Atlas pattern)
 
 **Exit:** every AI feature demonstrably no-ops with Von/Ollama killed;
 suggestion UI never commits an unconfirmed inference (I-9 holds under AI).
