@@ -448,7 +448,17 @@ export function App() {
             <span className="warn">{boardProblems.length} problems</span>
           )}
           {brokenNodes.size > 0 && (
-            <span className="warn">{brokenNodes.size} missing files</span>
+            <span
+              className="warn"
+              title={[...brokenNodes]
+                .map((id) => {
+                  const n = board.nodes.find((x) => x.id === id);
+                  return n?.type === "file" ? n.file : id;
+                })
+                .join("\n")}
+            >
+              {brokenNodes.size} missing files
+            </span>
           )}
           <span className="hint">
             wheel: pan / ctrl+wheel: zoom / drag nodes / click an edge for its

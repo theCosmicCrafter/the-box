@@ -65,11 +65,22 @@ const MIME: Record<string, string> = {
   txt: "text/plain; charset=utf-8",
 };
 
+// Dev-time renderer inspection: lets tooling evaluate the live page
+// (CDP on localhost). Harmless in production builds.
+if (process.env["ELECTRON_RENDERER_URL"]) {
+  app.commandLine.appendSwitch("remote-debugging-port", "9223");
+}
+
 // Must run before app ready (Electron contract for privileged schemes).
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "box",
-    privileges: { standard: true, secure: true, stream: true },
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+    },
   },
 ]);
 
@@ -172,6 +183,10 @@ interface WatchSession {
 }
 
 let session: WatchSession | null = null;
+// Media root for the box:// protocol: the currently open workspace.
+// Tracked separately from the watch session so media still resolves if
+// the watcher is unavailable (Linux manual-rescan mode).
+let workspaceRoot: string | null = null;
 
 const snapshot = (files: WorkspaceFile[]) =>
   new Map(files.map((f) => [f.path, { size: f.size, mtime: f.mtime }]));
@@ -324,7 +339,7 @@ function createWindow(): void {
 void app.whenReady().then(() => {
   // Media protocol: box://f/<urlencoded workspace-relative path>.
   protocol.handle("box", async (req) => {
-    const root = session?.root;
+    const root = workspaceRoot;
     if (!root) return new Response("no workspace", { status: 404 });
     const rel = decodeURIComponent(new URL(req.url).pathname).replace(
       /^\/+/,
@@ -348,6 +363,7 @@ void app.whenReady().then(() => {
     });
     if (r.canceled || r.filePaths.length === 0) return null;
     const root = r.filePaths[0]!;
+    workspaceRoot = root;
     const files = await scanDir(root);
     return { root, files };
   });
@@ -360,6 +376,7 @@ void app.whenReady().then(() => {
   // it - degrade to manual rescan with an explicit error, never silent.
   ipcMain.handle("workspace:watch", async (event, root: string) => {
     stopSession();
+    workspaceRoot = root;
     let watcher: FSWatcher;
     try {
       watcher = watch(root, { recursive: true }, () => {
