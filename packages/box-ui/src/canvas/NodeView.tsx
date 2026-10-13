@@ -48,6 +48,8 @@ export interface NodeViewProps {
   onDraftStart?: (nodeId: string, side: Side) => void;
   onDraftMove?: (wx: number, wy: number) => void;
   onDraftEnd?: (wx: number, wy: number) => void;
+  /** Double-click on an image file node (PureRef/Eagle inspect gesture). */
+  onInspect?: ((nodeId: string) => void) | undefined;
 }
 
 function label(n: CanvasNode): string {
@@ -210,6 +212,7 @@ export function NodeView(props: NodeViewProps) {
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (node.type === "text") setSelfEditing(true);
+        else if (isImage) props.onInspect?.(node.id);
       }}
     >
       {node.type === "file" && <span className="node-kind">file</span>}

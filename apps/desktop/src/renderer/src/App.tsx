@@ -25,7 +25,13 @@ import {
   serializeLinkNote,
 } from "@box/core";
 import type { WorkspaceFile } from "@box/ui";
-import { BoardView, FileList, NotePanel, useBoxStore } from "@box/ui";
+import {
+  BoardView,
+  FileList,
+  ImageInspector,
+  NotePanel,
+  useBoxStore,
+} from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface WorkspaceChanged {
@@ -122,6 +128,8 @@ export function App() {
   const [newBoardName, setNewBoardName] = useState("");
   const [fileTexts, setFileTexts] = useState<Map<string, string>>(new Map());
   const [editingNode, setEditingNode] = useState<string | null>(null);
+  // Image inspector (PureRef/Eagle): the file path currently inspected.
+  const [inspectPath, setInspectPath] = useState<string | null>(null);
 
   // Media URL through the box:// protocol (main validates inside root).
   // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
@@ -492,7 +500,18 @@ export function App() {
             onDropFile={(p, x, y) => void placeFile(p, x, y)}
             onEmptyDoubleClick={(x, y) => void createTextNode(x, y)}
             onDropEdgeAt={(f, s, x, y) => void dropEdgeAt(f, s, x, y)}
+            onInspectNode={(id) => {
+              const n = board.nodes.find((x) => x.id === id);
+              if (n?.type === "file") setInspectPath(n.file);
+            }}
           />
+          {inspectPath !== null && (
+            <ImageInspector
+              src={resolveMedia(inspectPath)}
+              name={inspectPath}
+              onClose={() => setInspectPath(null)}
+            />
+          )}
           {edgeNote && (
             <NotePanel
               note={edgeNote}

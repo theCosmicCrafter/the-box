@@ -346,6 +346,89 @@ button:hover {
   height: 36px;
 }
 
+/* Image inspector - PureRef/Eagle full-window zoom+pan overlay. */
+
+.inspector {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.inspector-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.92);
+}
+
+.inspector-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.inspector-stage:active {
+  cursor: grabbing;
+}
+
+.inspector-img {
+  position: absolute;
+  image-rendering: auto;
+  user-select: none;
+}
+
+.inspector-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid #2a3038;
+  border-radius: 8px;
+  background: rgba(15, 17, 21, 0.9);
+  font-size: 12px;
+  color: #d8dce4;
+}
+
+.inspector-bar button {
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 4px;
+  color: #d8dce4;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.inspector-bar button:hover {
+  border-color: #2f6fed;
+}
+
+.inspector-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspector-dim {
+  color: #6a7280;
+}
+
+.inspector-zoom {
+  min-width: 44px;
+  text-align: center;
+  color: #9aa3b2;
+}
+
+.inspector-close {
+  margin-left: 6px;
+}
+
 .node-edit {
   position: absolute;
   inset: 4px;

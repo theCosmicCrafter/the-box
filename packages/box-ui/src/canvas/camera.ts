@@ -45,8 +45,10 @@ export function zoomAt(
   sx: number,
   sy: number,
   factor: number,
+  lo = MIN_ZOOM,
+  hi = MAX_ZOOM,
 ): Camera {
-  const z = clamp(cam.z * factor, MIN_ZOOM, MAX_ZOOM);
+  const z = clamp(cam.z * factor, lo, hi);
   if (z === cam.z) return cam;
   const w = screenToWorld(cam, sx, sy);
   return { x: w.x - sx / z, y: w.y - sy / z, z };
@@ -58,11 +60,12 @@ export function zoomToFit(
   vw: number,
   vh: number,
   padding = 64,
+  hi = MAX_ZOOM,
 ): Camera {
   const z = clamp(
     Math.min((vw - padding * 2) / rect.w, (vh - padding * 2) / rect.h),
     MIN_ZOOM,
-    MAX_ZOOM,
+    hi,
   );
   return {
     x: rect.x + rect.w / 2 - vw / (2 * z),

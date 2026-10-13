@@ -41,6 +41,8 @@ export interface BoardViewProps {
   onDropFile?: (path: string, wx: number, wy: number) => void;
   /** Double-click on empty canvas at world coords (text-node affordance). */
   onEmptyDoubleClick?: (wx: number, wy: number) => void;
+  /** Double-click on an image node -> full-window inspector (PureRef/Eagle). */
+  onInspectNode?: (nodeId: string) => void;
   /** Edge draft released over empty canvas - "connect to nothing yet". */
   onDropEdgeAt?: (
     fromId: string,
@@ -210,6 +212,7 @@ export function BoardView(props: BoardViewProps) {
           onResize={props.onResize ?? (() => {})}
           onCommit={props.onCommit ?? (() => {})}
           onTextCommit={props.onTextCommit ?? (() => {})}
+          onInspect={props.onInspectNode}
           onDraftStart={(nodeId, side) => {
             const w = anchor(n, side);
             setDraft({
