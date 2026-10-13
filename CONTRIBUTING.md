@@ -63,9 +63,13 @@ for security findings. The threat model is in `docs/SECURITY-THREATS.md`.
 2. Branch `feat/<slug>` → implement with tests → `npm run typecheck`,
    `npm run lint`, `npm test`, `npm run test:invariants`,
    `npm run test:formats` green locally.
-3. PR: what/why, FR linkage, test evidence, screenshots for UI.
-4. Review: second pair of eyes for code; docs-only may self-merge.
-5. Squash-merge; `main` stays green.
+
+Formatting is committed, not per-machine: `.prettierrc` (80 cols, double
+quotes, LF), `.gitattributes` (LF everywhere), `.vscode/settings.json`
+(formatOnSave via the Prettier extension). `npm run format` rewrites the
+tree; `npm run format:check` verifies. `source.organizeImports` on save is
+disabled repo-wide - it silently prunes imports added mid-edit. If your
+editor formats differently, its config loses to the committed one. 3. PR: what/why, FR linkage, test evidence, screenshots for UI. 4. Review: second pair of eyes for code; docs-only may self-merge. 5. Squash-merge; `main` stays green.
 
 ## Roles
 
