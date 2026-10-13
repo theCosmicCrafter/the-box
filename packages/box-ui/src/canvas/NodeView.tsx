@@ -7,8 +7,8 @@
 // visibly broken (I-7). Side handles appear on hover/selected (tldraw
 // pattern): drag from one to start a connection draft.
 
-import type { CanvasNode, Side } from "@box/core";
-import { baseName } from "@box/core";
+import type { CanvasNode, FileKind, Side } from "@box/core";
+import { baseName, fileKind } from "@box/core";
 import { useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
 import { screenToWorld } from "./camera.js";
@@ -21,11 +21,6 @@ const HANDLE_POS: Record<Side, React.CSSProperties> = {
   left: { left: 0, top: "50%" },
 };
 
-const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif|tiff?)$/i;
-const VIDEO_RE = /\.(mp4|webm|mov)$/i;
-const AUDIO_RE = /\.(mp3|wav|flac|ogg)$/i;
-const PDF_RE = /\.pdf$/i;
-const TEXT_RE = /\.(md|txt)$/i;
 const MIN_NODE = 40;
 
 export interface NodeViewProps {
@@ -38,6 +33,8 @@ export interface NodeViewProps {
   resolveMedia?: ((rel: string) => string) | undefined;
   /** Text excerpt for document file nodes (loaded by the platform). */
   excerpt?: string | undefined;
+  /** Byte size for typed tiles (loaded by the platform). */
+  fileSize?: number | undefined;
   /** Text-node edit mode (controlled by the platform for new nodes). */
   editing?: boolean;
   onSelect: (id: string) => void;
@@ -50,6 +47,230 @@ export interface NodeViewProps {
   onDraftEnd?: (wx: number, wy: number) => void;
   /** Double-click on an image file node (PureRef/Eagle inspect gesture). */
   onInspect?: ((nodeId: string) => void) | undefined;
+}
+
+function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** Eagle-style typed tile: the file is identified even with no preview. */
+function TypedTile(props: {
+  kind: FileKind;
+  path: string;
+  size?: number | undefined;
+}) {
+  const ext = props.path.includes(".")
+    ? (props.path.split(".").pop() ?? "?").toUpperCase()
+    : "?";
+  return (
+    <div className="node-tile">
+      <span className="node-tile-ext">{ext}</span>
+      <span className="node-tile-kind">
+        {props.kind}
+        {props.size !== undefined ? ` · ${fmtSize(props.size)}` : ""}
+      </span>
+    </div>
+  );
+}
+
+/** Eagle previews fonts; the FontFace API makes it nearly free here. */
+function FontPreview(props: { url: string; family: string }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const face = new FontFace(props.family, `url("${props.url}")`);
+    face
+      .load()
+      .then((f) => {
+        if (live) {
+          document.fonts.add(f);
+          setReady(true);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [props.url, props.family]);
+  return (
+    <div
+      className="node-font"
+      style={ready ? { fontFamily: props.family } : undefined}
+    >
+      AaBbGg
+      <span className="node-font-sub">0123456789</span>
+    </div>
+  );
+}
+
+/** CSV/TSV renders as a mini table - first rows and columns only. */
+function CsvPreview(props: { text: string; tsv: boolean }) {
+  const rows = props.text
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "")
+    .slice(0, 6)
+    .map((l) => l.split(props.tsv ? "\t" : ",").slice(0, 4));
+  return (
+    <table className="node-table">
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            {r.map((c, j) => (
+              <td key={j}>{c.trim()}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** A board file on a board: show its shape instead of raw JSON. */
+function BoardPreview(props: { text: string }) {
+  let stats: string | null = null;
+  try {
+    const b = JSON.parse(props.text) as {
+      nodes?: unknown[];
+      edges?: unknown[];
+    };
+    if (Array.isArray(b.nodes))
+      stats = `${b.nodes.length} nodes · ${b.edges?.length ?? 0} edges`;
+  } catch {
+    /* fall through to excerpt */
+  }
+  return stats !== null ? (
+    <div className="node-boardstats">board · {stats}</div>
+  ) : (
+    <div className="node-excerpt">{props.text.slice(0, 400)}</div>
+  );
+}
+
+/** The body of a file node, one presenter per FileKind. */
+function FileBody(props: {
+  node: CanvasNode & { type: "file" };
+  kind: FileKind;
+  resolveMedia?: ((rel: string) => string) | undefined;
+  selected: boolean;
+  excerpt?: string | undefined;
+  fileSize?: number | undefined;
+}) {
+  const { node, kind } = props;
+  const url = props.resolveMedia?.(node.file);
+  const caption = <div className="node-caption">{baseName(node.file)}</div>;
+  switch (kind) {
+    case "image":
+      return url !== undefined ? (
+        <>
+          <img
+            className="node-media"
+            src={url}
+            alt={baseName(node.file)}
+            draggable={false}
+          />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "video":
+      /* tldraw + AnimRef precedent: video plays inline, muted+looping,
+         so a board of clips reads at a glance without stealing audio. */
+      return url !== undefined ? (
+        <>
+          <video
+            className="node-media"
+            src={url}
+            muted
+            loop
+            autoPlay
+            playsInline
+            onPointerDown={(e) => e.stopPropagation()}
+          />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "audio":
+      /* Heptabase audioCard precedent: a compact player chip. Controls
+         only when selected - ambient boards stay quiet. */
+      return url !== undefined ? (
+        <>
+          <div className="node-audio">
+            {props.selected ? (
+              <audio
+                src={url}
+                controls
+                onPointerDown={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="node-badge">audio</span>
+            )}
+          </div>
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "pdf":
+      /* Chromium's PDFium viewer renders served PDFs in an iframe. */
+      return url !== undefined ? (
+        <>
+          <iframe className="node-pdf" src={url} title={node.file} />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "csv":
+      return props.excerpt !== undefined ? (
+        <>
+          <CsvPreview
+            text={props.excerpt}
+            tsv={node.file.toLowerCase().endsWith(".tsv")}
+          />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "board":
+      return props.excerpt !== undefined ? (
+        <>
+          <BoardPreview text={props.excerpt} />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "font":
+      return url !== undefined ? (
+        <>
+          <FontPreview url={url} family={`boxfont-${node.id}`} />
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    case "text":
+      return props.excerpt !== undefined ? (
+        <>
+          <div className="node-excerpt">{props.excerpt}</div>
+          {caption}
+        </>
+      ) : (
+        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+      );
+    default:
+      return (
+        <>
+          <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+          {caption}
+        </>
+      );
+  }
 }
 
 function label(n: CanvasNode): string {
@@ -187,13 +408,11 @@ export function NodeView(props: NodeViewProps) {
     .filter(Boolean)
     .join(" ");
 
-  const isImage =
-    node.type === "file" &&
-    (node["box-media"]?.kind === "image" || IMAGE_RE.test(node.file));
-  const isVideo = node.type === "file" && VIDEO_RE.test(node.file);
-  const isAudio = node.type === "file" && AUDIO_RE.test(node.file);
-  const isPdf = node.type === "file" && PDF_RE.test(node.file);
-  const isDoc = node.type === "file" && TEXT_RE.test(node.file);
+  const override = node.type === "file" ? node["box-media"]?.kind : undefined;
+  const kind: FileKind | null =
+    node.type === "file"
+      ? ((override === "doc" ? "text" : override) ?? fileKind(node.file))
+      : null;
 
   return (
     <div
@@ -212,65 +431,22 @@ export function NodeView(props: NodeViewProps) {
       onDoubleClick={(e) => {
         e.stopPropagation();
         if (node.type === "text") setSelfEditing(true);
-        else if (isImage) props.onInspect?.(node.id);
+        else if (kind === "image") props.onInspect?.(node.id);
       }}
     >
-      {node.type === "file" && <span className="node-kind">file</span>}
+      {node.type === "file" && kind !== null && (
+        <span className="node-kind">{kind}</span>
+      )}
       {props.broken && <span className="node-flag">missing</span>}
-      {isImage && props.resolveMedia ? (
-        <>
-          <img
-            className="node-media"
-            src={props.resolveMedia(node.file)}
-            alt={baseName(node.file)}
-            draggable={false}
-          />
-          <div className="node-caption">{baseName(node.file)}</div>
-        </>
-      ) : isVideo && props.resolveMedia ? (
-        <>
-          {/* tldraw + AnimRef precedent: video plays inline, muted+looping,
-              so a board of clips reads at a glance without stealing audio. */}
-          <video
-            className="node-media"
-            src={props.resolveMedia(node.file)}
-            muted
-            loop
-            autoPlay
-            playsInline
-            onPointerDown={(e) => e.stopPropagation()}
-          />
-          <div className="node-caption">{baseName(node.file)}</div>
-        </>
-      ) : isAudio && props.resolveMedia ? (
-        <>
-          {/* Heptabase audioCard precedent: a compact player chip. Controls
-              only when selected - ambient boards stay quiet. */}
-          <div className="node-audio">
-            {props.selected ? (
-              <audio
-                src={props.resolveMedia(node.file)}
-                controls
-                onPointerDown={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="node-badge">audio</span>
-            )}
-          </div>
-          <div className="node-caption">{baseName(node.file)}</div>
-        </>
-      ) : isPdf ? (
-        <>
-          {/* pdfjs preview is a later escalation (Heptabase/Obsidian use
-              pdfjs-wasm); a clear badge beats a broken embed for now. */}
-          <div className="node-badge">pdf</div>
-          <div className="node-caption">{baseName(node.file)}</div>
-        </>
-      ) : isDoc && props.excerpt !== undefined ? (
-        <>
-          <div className="node-excerpt">{props.excerpt}</div>
-          <div className="node-caption">{baseName(node.file)}</div>
-        </>
+      {node.type === "file" && kind !== null ? (
+        <FileBody
+          node={node}
+          kind={kind}
+          resolveMedia={props.resolveMedia}
+          selected={props.selected}
+          excerpt={props.excerpt}
+          fileSize={props.fileSize}
+        />
       ) : node.type === "text" && editing ? (
         <textarea
           className="node-edit"

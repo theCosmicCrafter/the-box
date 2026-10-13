@@ -20,6 +20,8 @@ export interface BoardViewProps {
   brokenEdges?: Set<string> | undefined;
   /** File path -> short text excerpt for document nodes. */
   fileTexts?: Map<string, string> | undefined;
+  /** File path -> byte size for typed tiles. */
+  fileSizes?: Map<string, number> | undefined;
   /** Node currently in text-edit mode (set by platform on create). */
   editingNode?: string | null | undefined;
   resolveMedia?: ((rel: string) => string) | undefined;
@@ -207,6 +209,9 @@ export function BoardView(props: BoardViewProps) {
           }}
           resolveMedia={props.resolveMedia}
           excerpt={n.type === "file" ? props.fileTexts?.get(n.file) : undefined}
+          fileSize={
+            n.type === "file" ? props.fileSizes?.get(n.file) : undefined
+          }
           editing={props.editingNode === n.id}
           onMove={props.onMove ?? (() => {})}
           onResize={props.onResize ?? (() => {})}

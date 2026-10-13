@@ -571,6 +571,99 @@ button:hover {
   height: 36px;
 }
 
+/* Per-kind file presenters: every file in the workspace is presentable. */
+
+.node-tile {
+  position: absolute;
+  inset: 18px 0 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.node-tile-ext {
+  padding: 6px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #9fc0ff;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  background: rgba(15, 17, 21, 0.6);
+}
+
+.node-tile-kind {
+  font-size: 10px;
+  color: #7a8291;
+  letter-spacing: 0.06em;
+}
+
+.node-font {
+  position: absolute;
+  inset: 18px 0 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: #d8dce4;
+  pointer-events: none;
+}
+
+.node-font-sub {
+  font-size: 12px;
+  color: #8a92a3;
+  margin-top: 4px;
+}
+
+.node-table {
+  position: absolute;
+  inset: 18px 4px 18px;
+  border-collapse: collapse;
+  font-size: 10px;
+  color: #b9c0cd;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.node-table td {
+  border: 1px solid #2a3038;
+  padding: 2px 6px;
+  max-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.node-table tr:first-child td {
+  color: #9fc0ff;
+}
+
+.node-boardstats {
+  position: absolute;
+  inset: 18px 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #9fc0ff;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+.node-pdf {
+  position: absolute;
+  inset: 0 0 18px;
+  width: 100%;
+  height: calc(100% - 18px);
+  border: 0;
+  background: #232830;
+  pointer-events: none;
+}
+
 /* Image inspector - PureRef/Eagle full-window zoom+pan overlay. */
 
 .inspector {

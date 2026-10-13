@@ -17,6 +17,7 @@ import {
   BOARD_FORMAT,
   createEdgePlan,
   deleteEdgePlan,
+  fileKind,
   hasScaffoldDirs,
   isPathRel,
   linkNoteName,
@@ -282,11 +283,22 @@ export function App() {
     })();
   }, []);
 
-  // Document excerpts for file nodes (md/txt first 400 chars).
+  // Text for the kinds that read it: excerpts for text nodes' file
+  // bodies, rows for csv tables, JSON for board stats. Skip binaries
+  // and anything over 1MB - a log dump is a tile, not a reader.
+  const fileSizes = useMemo(
+    () => new Map(files.map((f) => [f.path, f.size])),
+    [files],
+  );
   useEffect(() => {
     if (!workspaceRoot || !window.box || !board) return;
     const targets = board.nodes
-      .filter((n) => n.type === "file" && /\.(md|txt)$/i.test(n.file))
+      .filter(
+        (n) =>
+          n.type === "file" &&
+          (fileSizes.get(n.file) ?? 0) <= 1024 * 1024 &&
+          ["text", "csv", "board"].includes(fileKind(n.file)),
+      )
       .map((n) => (n.type === "file" ? n.file : ""));
     if (targets.length === 0) return;
     void (async () => {
@@ -294,7 +306,15 @@ export function App() {
       for (const p of targets) {
         if (next.has(p)) continue;
         const t = await window.box!.readFile(workspaceRoot, p);
-        if (t !== null) next.set(p, t.slice(0, 400));
+        // board JSON needs the whole doc to parse; csv a few rows;
+        // excerpts just enough to read.
+        const cap =
+          fileKind(p) === "board"
+            ? 256 * 1024
+            : fileKind(p) === "csv"
+              ? 8 * 1024
+              : 400;
+        if (t !== null) next.set(p, t.slice(0, cap));
       }
       setFileTexts(next);
     })();
@@ -565,6 +585,7 @@ export function App() {
             brokenNodes={brokenNodes}
             brokenEdges={remote?.brokenEdges}
             fileTexts={fileTexts}
+            fileSizes={fileSizes}
             editingNode={editingNode}
             resolveMedia={resolveMedia}
             onMove={moveNode}

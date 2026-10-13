@@ -41,7 +41,7 @@ export interface FileNode extends BaseNode {
   file: string;
   subpath?: string;
   "box-ink"?: string;
-  "box-media"?: { kind: "image" | "video" | "audio" | "doc" };
+  "box-media"?: { kind: import("./kind.js").FileKind | "doc" };
 }
 
 export interface LinkNode extends BaseNode {
