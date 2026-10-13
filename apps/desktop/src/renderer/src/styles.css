@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
 }
 
 body {
@@ -89,4 +89,148 @@ button:hover {
 
 .empty {
   color: #4d5665;
+}
+
+/* ---- board canvas (Stage 1) ---- */
+
+.board-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 0;
+}
+
+.board-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid #232833;
+  background: #14171d;
+}
+
+.board-bar code {
+  color: #9aa3b2;
+}
+
+.board-bar .warn {
+  color: #e0a34a;
+  font-size: 12px;
+}
+
+.board-bar .hint {
+  margin-left: auto;
+  color: #4d5665;
+  font-size: 12px;
+}
+
+.file-list button.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+
+.file-list button.link:hover code {
+  color: #8db4ff;
+}
+
+.canvas-viewport {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle, #232833 1px, transparent 1px) 0 0 / 24px 24px,
+    #0f1115;
+  touch-action: none;
+  cursor: default;
+}
+
+.canvas-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.edge-layer {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: #5a83c4;
+  stroke-width: 2;
+}
+
+.edge.broken {
+  stroke: #b05a5a;
+  stroke-dasharray: 6 5;
+}
+
+.edge-arrow {
+  fill: #5a83c4;
+}
+
+.edge-arrow.broken {
+  fill: #b05a5a;
+}
+
+.node {
+  position: absolute;
+  box-sizing: border-box;
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+}
+
+.node:active {
+  cursor: grabbing;
+}
+
+.node.selected {
+  border-color: #2f6fed;
+  box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.35);
+}
+
+.node.broken {
+  border-style: dashed;
+  border-color: #b05a5a;
+  opacity: 0.75;
+}
+
+.node-group {
+  background: rgba(47, 111, 237, 0.06);
+  border-style: dashed;
+}
+
+.node-kind {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #4d5665;
+}
+
+.node-flag {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: #b05a5a;
+}
+
+.node-label {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: #d8dce4;
 }

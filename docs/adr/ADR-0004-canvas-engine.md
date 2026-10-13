@@ -1,8 +1,8 @@
 # ADR-0004 - Canvas engine: custom DOM + salvaged camera logic (OQ-7)
 
-| Status | Date | Supersedes |
-|---|---|---|
-| **Proposed - for group decision** | 2026-10-12 | - |
+| Status       | Date       | Supersedes |
+| ------------ | ---------- | ---------- |
+| **Accepted** | 2026-10-13 | -          |
 
 ## Context
 
@@ -21,14 +21,39 @@ salvaged CanvasMCPClient code, custom DOM.
   read 2026-10-12.
 - Our node types (file objects, ink overlays, link-note edges) are bespoke;
   a general canvas framework would be bent around them anyway.
+- **tldraw's own renderer is DOM/SVG** - `DefaultCanvas.tsx` renders `<svg>`,
+  every shape wraps `SVGContainer.tsx`, zero WebGL in the renderer core
+  (verified in the cloned repo 2026-10-13). Custom DOM is the same
+  technology class as the benchmark, not the budget option.
+- **tldraw license includes telemetry** (verified 2026-10-13): the key
+  mechanism "may collect and transmit usage data to tldraw for license
+  compliance purposes" and detects deployment environments - a hard
+  violation of the zero-cloud rule independent of price.
+- **No WebGL whiteboard is pure WebGL**: Obsidian's canvas is PixiJS
+  underneath with DOM text-node overlays; Figma is the same pattern. A
+  board whose nodes are documents needs DOM nodes regardless, so WebGL is
+  strictly an additive layer, never a replacement.
+- tldraw pricing (verified 2026-10-13): no published figure - value-based,
+  sales-gated; hobby license watermarked, startup discount, 100-day trial.
+- **Ratification (2026-10-13):** Rich approved this decision with the
+  directive to mimic tldraw's interaction model and patterns as closely as
+  possible without copying code - study-only clean-room reuse.
 
-## Decision (proposed)
+## Decision
 
 Custom React DOM renderer: nodes as DOM elements (media-native: `<img>`,
 `<video>` come free), edges + ink as Canvas2D/SVG overlays, camera math
 ported from `canvasSlice` to Zustand. Konva is the documented fallback if
 DOM perf misses the ≥30fps/500-object budget. PixiJS remains the far upgrade
 path (WebGL) for Stage 5+.
+
+**Renderer seam (required):** camera math and hit-testing live behind a
+`Viewport`/`SceneRenderer` boundary in `box-ui`; node kinds render behind a
+per-kind renderer interface. If WebGL escalation ever happens it replaces
+the edge/ink/background layers - not the model, not reconcile, not tests.
+**Interaction model: mimic tldraw** - wheel scroll pans, ctrl/cmd+wheel
+zooms to cursor, space or middle-drag pans, click selects, drag moves
+nodes. Patterns studied; no code copied.
 
 ## Consequences
 
