@@ -45,7 +45,14 @@ export function FileList(props: {
           </h3>
           <ul>
             {(grouped.get(k) ?? []).map((f) => (
-              <li key={f.path}>
+              <li
+                key={f.path}
+                draggable
+                title="drag onto a board to place it"
+                onDragStart={(e) =>
+                  e.dataTransfer.setData("application/x-box-file", f.path)
+                }
+              >
                 {k === "board" && props.onOpen ? (
                   <button
                     className="link"

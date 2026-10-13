@@ -4,11 +4,21 @@
 // rescan the list and reload the open board only when it truly changed
 // on disk (self-write echoes compare identical and are skipped).
 
-import type { Delta, LinkNote, ProblemItem, Side, WritePlan } from "@box/core";
+import type {
+  CanvasNode,
+  Delta,
+  LinkNote,
+  ProblemItem,
+  Side,
+  WritePlan,
+} from "@box/core";
 import {
+  BOARD_FORMAT,
   createEdgePlan,
   deleteEdgePlan,
+  isPathRel,
   linkNoteName,
+  newNodeId,
   parseBoard,
   parseLinkNote,
   serializeBoard,
@@ -91,6 +101,9 @@ export function App() {
     openBoard,
     closeBoard,
     moveNode,
+    addNode,
+    removeNode,
+    updateNode,
     addEdge,
     removeEdge,
   } = useBoxStore();
@@ -104,6 +117,13 @@ export function App() {
   const [edgeNote, setEdgeNote] = useState<LinkNote | null>(null);
   const noteDirty = useRef(false);
   const [noteStale, setNoteStale] = useState(false);
+  // First-run surface: board creation + doc excerpts + text editing.
+  const [newBoardName, setNewBoardName] = useState("");
+  const [fileTexts, setFileTexts] = useState<Map<string, string>>(new Map());
+  const [editingNode, setEditingNode] = useState<string | null>(null);
+
+  // Media URL through the box:// protocol (main validates inside root).
+  const resolveMedia = (rel: string) => `box://f/${encodeURIComponent(rel)}`;
 
   const open = async () => {
     const r = await window.box?.openWorkspace();
@@ -131,6 +151,52 @@ export function App() {
     useBoxStore.getState().setProblems(problems.map(fmtProblem));
     return false;
   };
+
+  // New board: write the empty canvas file, then open it.
+  const newBoard = async () => {
+    if (!workspaceRoot || !window.box) return;
+    const slug = newBoardName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (slug === "") return;
+    const rel = `.box/${slug}.box.canvas`;
+    if (!isPathRel(rel)) {
+      useBoxStore.getState().setProblems([`bad board name: ${newBoardName}`]);
+      return;
+    }
+    const r = await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeBoard({ nodes: [], edges: [], "box-format": BOARD_FORMAT }),
+    );
+    if (r.ok) {
+      setNewBoardName("");
+      await loadBoardFile(rel);
+    } else {
+      useBoxStore.getState().setProblems([`board create failed: ${r.error}`]);
+    }
+  };
+
+  // Document excerpts for file nodes (md/txt first 400 chars).
+  useEffect(() => {
+    if (!workspaceRoot || !window.box || !board) return;
+    const targets = board.nodes
+      .filter((n) => n.type === "file" && /\.(md|txt)$/i.test(n.file))
+      .map((n) => (n.type === "file" ? n.file : ""));
+    if (targets.length === 0) return;
+    void (async () => {
+      const next = new Map(fileTexts);
+      for (const p of targets) {
+        if (next.has(p)) continue;
+        const t = await window.box!.readFile(workspaceRoot, p);
+        if (t !== null) next.set(p, t.slice(0, 400));
+      }
+      setFileTexts(next);
+    })();
+    // fileTexts accumulated; targets derived from board nodes
+  }, [board?.nodes, workspaceRoot]);
 
   const saveBoard = async () => {
     const b = useBoxStore.getState().board;
@@ -272,6 +338,83 @@ export function App() {
     }
   };
 
+  // Node creation: double-click empty canvas or drop a file from the list.
+  const createTextNode = async (wx: number, wy: number) => {
+    const node: CanvasNode = {
+      id: newNodeId(),
+      type: "text",
+      x: Math.round(wx),
+      y: Math.round(wy),
+      width: 220,
+      height: 90,
+      text: "",
+    };
+    addNode(node);
+    setEditingNode(node.id);
+    await saveBoard();
+  };
+
+  const placeFile = async (path: string, wx: number, wy: number) => {
+    const node: CanvasNode = {
+      id: newNodeId(),
+      type: "file",
+      x: Math.round(wx),
+      y: Math.round(wy),
+      width: 260,
+      height: 180,
+      file: path,
+    };
+    addNode(node);
+    await saveBoard();
+  };
+
+  // Arrow released over empty canvas: create the target text node and the
+  // edge in one plan (note write, then board write - I-1 ordering holds).
+  const dropEdgeAt = async (
+    fromId: string,
+    fromSide: Side,
+    wx: number,
+    wy: number,
+  ) => {
+    const b = useBoxStore.getState().board;
+    if (!workspaceRoot || !b || !boardPath) return;
+    const node: CanvasNode = {
+      id: newNodeId(),
+      type: "text",
+      x: Math.round(wx) - 110,
+      y: Math.round(wy) - 45,
+      width: 220,
+      height: 90,
+      text: "",
+    };
+    const grown: typeof b = { ...b, nodes: [...b.nodes, node] };
+    const { plan, edge } = createEdgePlan(grown, boardPath, fromId, node.id, {
+      fromSide,
+      toSide: "left",
+    });
+    const errors = await applyPlan(workspaceRoot, plan);
+    if (errors.length === 0) {
+      addNode(node);
+      addEdge(edge);
+      setEditingNode(node.id);
+      void rescan();
+    } else {
+      useBoxStore.getState().setProblems(errors);
+    }
+  };
+
+  // Delete key on a selected node: remove the placement, keep the file.
+  const deleteNode = async (id: string) => {
+    removeNode(id);
+    await saveBoard();
+  };
+
+  const commitText = async (id: string, text: string) => {
+    updateNode(id, { text });
+    setEditingNode(null);
+    await saveBoard();
+  };
+
   // Broken-file detection: file nodes whose target isn't in the workspace.
   const brokenNodes = useMemo(() => {
     const have = new Set(files.map((f) => f.path));
@@ -301,14 +444,24 @@ export function App() {
         </div>
         <div className="board-body">
           <BoardView
+            key={boardPath}
             board={board}
             brokenNodes={brokenNodes}
             brokenEdges={remote?.brokenEdges}
+            fileTexts={fileTexts}
+            editingNode={editingNode}
+            resolveMedia={resolveMedia}
             onMove={moveNode}
+            onResize={(id, w, h) => updateNode(id, { width: w, height: h })}
             onCommit={() => void saveBoard()}
+            onTextCommit={(id, t) => void commitText(id, t)}
+            onDeleteNode={(id) => void deleteNode(id)}
             onCreateEdge={(f, t, fs, ts) => void createEdge(f, t, fs, ts)}
             onDeleteEdge={(id) => void deleteEdge(id)}
             onSelectEdge={(id) => void selectEdge(id)}
+            onDropFile={(p, x, y) => void placeFile(p, x, y)}
+            onEmptyDoubleClick={(x, y) => void createTextNode(x, y)}
+            onDropEdgeAt={(f, s, x, y) => void dropEdgeAt(f, s, x, y)}
           />
           {edgeNote && (
             <NotePanel
@@ -343,6 +496,15 @@ export function App() {
         <>
           <div className="toolbar">
             <code>{workspaceRoot}</code>
+            <input
+              placeholder="new board name"
+              value={newBoardName}
+              onChange={(e) => setNewBoardName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void newBoard();
+              }}
+            />
+            <button onClick={() => void newBoard()}>New board</button>
             <button onClick={() => void rescan()}>Rescan</button>
           </div>
           <FileList files={files} onOpen={(p) => void loadBoardFile(p)} />

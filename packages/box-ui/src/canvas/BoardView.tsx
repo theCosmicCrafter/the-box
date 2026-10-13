@@ -6,20 +6,28 @@
 // drop on target -> onCreateEdge with the sides actually used).
 
 import type { Board, CanvasNode, Side } from "@box/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DraftEdge } from "./EdgeLayer.js";
 import { EdgeLayer, anchor } from "./EdgeLayer.js";
 import { NodeView } from "./NodeView.js";
 import { Viewport } from "./Viewport.js";
 import type { Camera } from "./camera.js";
-import { DEFAULT_CAMERA } from "./camera.js";
+import { DEFAULT_CAMERA, zoomToFit } from "./camera.js";
 
 export interface BoardViewProps {
   board: Board;
   brokenNodes?: Set<string> | undefined;
   brokenEdges?: Set<string> | undefined;
+  /** File path -> short text excerpt for document nodes. */
+  fileTexts?: Map<string, string> | undefined;
+  /** Node currently in text-edit mode (set by platform on create). */
+  editingNode?: string | null | undefined;
+  resolveMedia?: ((rel: string) => string) | undefined;
   onMove?: (id: string, x: number, y: number) => void;
+  onResize?: (id: string, w: number, h: number) => void;
   onCommit?: () => void;
+  onTextCommit?: (id: string, text: string) => void;
+  onDeleteNode?: (id: string) => void;
   onCreateEdge?: (
     fromNodeId: string,
     toNodeId: string,
@@ -29,6 +37,17 @@ export interface BoardViewProps {
   onDeleteEdge?: (edgeId: string) => void;
   /** Fires on every edge-selection change (id, or null when cleared). */
   onSelectEdge?: (edgeId: string | null) => void;
+  /** Workspace file dropped onto the canvas at world coords. */
+  onDropFile?: (path: string, wx: number, wy: number) => void;
+  /** Double-click on empty canvas at world coords (text-node affordance). */
+  onEmptyDoubleClick?: (wx: number, wy: number) => void;
+  /** Edge draft released over empty canvas - "connect to nothing yet". */
+  onDropEdgeAt?: (
+    fromId: string,
+    fromSide: Side,
+    wx: number,
+    wy: number,
+  ) => void;
 }
 
 interface Draft {
@@ -56,6 +75,29 @@ function sideToward(node: CanvasNode, wx: number, wy: number): Side {
 
 export function BoardView(props: BoardViewProps) {
   const [cam, setCam] = useState<Camera>(DEFAULT_CAMERA);
+  const vpRef = useRef<HTMLDivElement | null>(null);
+
+  // Open = fit everything (mounted once per board via key={boardPath}).
+  useEffect(() => {
+    const el = vpRef.current;
+    if (!el || props.board.nodes.length === 0) return;
+    const r = el.getBoundingClientRect();
+    const xs = props.board.nodes.map((n) => [n.x, n.x + n.width]).flat();
+    const ys = props.board.nodes.map((n) => [n.y, n.y + n.height]).flat();
+    setCam(
+      zoomToFit(
+        {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          w: Math.max(...xs) - Math.min(...xs),
+          h: Math.max(...ys) - Math.min(...ys),
+        },
+        r.width,
+        r.height,
+      ),
+    );
+    // mount-only: fit once when the board opens
+  }, []);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -83,17 +125,21 @@ export function BoardView(props: BoardViewProps) {
         setSelected(null);
         selectEdge(null);
         setDraft(null);
-      } else if (
-        (e.key === "Delete" || e.key === "Backspace") &&
-        selectedEdge
-      ) {
-        props.onDeleteEdge?.(selectedEdge);
-        selectEdge(null);
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedEdge) {
+          props.onDeleteEdge?.(selectedEdge);
+          selectEdge(null);
+        } else if (selected) {
+          // Removing a node removes the placement only - the file stays,
+          // its edges render broken (I-7), and notes are never destroyed.
+          props.onDeleteNode?.(selected);
+          setSelected(null);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedEdge, props.onDeleteEdge]);
+  }, [selected, selectedEdge, props.onDeleteEdge, props.onDeleteNode]);
 
   const nodeAt = (wx: number, wy: number): CanvasNode | null => {
     for (let i = props.board.nodes.length - 1; i >= 0; i--) {
@@ -131,6 +177,9 @@ export function BoardView(props: BoardViewProps) {
         setSelected(null);
         selectEdge(null);
       }}
+      viewportRef={vpRef}
+      onDropFile={props.onDropFile}
+      onEmptyDoubleClick={props.onEmptyDoubleClick}
     >
       <EdgeLayer
         board={props.board}
@@ -154,8 +203,13 @@ export function BoardView(props: BoardViewProps) {
             setSelected(id);
             selectEdge(null);
           }}
+          resolveMedia={props.resolveMedia}
+          excerpt={n.type === "file" ? props.fileTexts?.get(n.file) : undefined}
+          editing={props.editingNode === n.id}
           onMove={props.onMove ?? (() => {})}
+          onResize={props.onResize ?? (() => {})}
           onCommit={props.onCommit ?? (() => {})}
+          onTextCommit={props.onTextCommit ?? (() => {})}
           onDraftStart={(nodeId, side) => {
             const w = anchor(n, side);
             setDraft({
@@ -188,6 +242,9 @@ export function BoardView(props: BoardViewProps) {
                   draft.fromSide,
                   sideToward(over, wx, wy),
                 );
+              } else if (over === null) {
+                // tldraw behavior: arrow into space makes a thing to point at.
+                props.onDropEdgeAt?.(draft.fromId, draft.fromSide, wx, wy);
               }
             }
             setDraft(null);

@@ -9,12 +9,16 @@
 import type { ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
-import { DEFAULT_CAMERA, panBy, zoomAt } from "./camera.js";
+import { DEFAULT_CAMERA, panBy, screenToWorld, zoomAt } from "./camera.js";
 
 export interface ViewportProps {
   camera?: Camera;
   onCameraChange?: (cam: Camera) => void;
-  onBackgroundClick?: () => void;
+  onBackgroundClick?: (() => void) | undefined;
+  /** File dropped from the workspace list, at world coordinates. */
+  onDropFile?: ((path: string, wx: number, wy: number) => void) | undefined;
+  /** Double-click on empty canvas, at world coordinates. */
+  onEmptyDoubleClick?: ((wx: number, wy: number) => void) | undefined;
   children: ReactNode;
   viewportRef?: RefObject<HTMLDivElement | null>;
   className?: string;
@@ -103,6 +107,29 @@ export function Viewport(props: ViewportProps) {
     panState.current = null;
   };
 
+  const worldAt = (clientX: number, clientY: number) => {
+    const r = ref.current?.getBoundingClientRect();
+    return screenToWorld(
+      cam,
+      clientX - (r?.left ?? 0),
+      clientY - (r?.top ?? 0),
+    );
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    const path = e.dataTransfer.getData("application/x-box-file");
+    if (path === "") return;
+    e.preventDefault();
+    const w = worldAt(e.clientX, e.clientY);
+    props.onDropFile?.(path, Math.round(w.x), Math.round(w.y));
+  };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    const w = worldAt(e.clientX, e.clientY);
+    props.onEmptyDoubleClick?.(Math.round(w.x), Math.round(w.y));
+  };
+
   return (
     <div
       ref={(el) => {
@@ -118,6 +145,9 @@ export function Viewport(props: ViewportProps) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => (panState.current = null)}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
+      onDoubleClick={onDoubleClick}
     >
       <div
         className="canvas-world"

@@ -20,7 +20,7 @@ import {
   reconcile,
   resolveInside,
 } from "@box/core";
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import {
@@ -40,6 +40,38 @@ export interface WorkspaceFile {
 }
 
 const SKIP_DIRS = new Set([".box/tmp", "node_modules", ".git"]);
+
+// box://f/<encoded-rel> serves workspace media to the renderer (img nodes,
+// video, audio). resolveInside still guards - the scheme never escapes.
+const MIME: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  svg: "image/svg+xml",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  flac: "audio/flac",
+  ogg: "audio/ogg",
+  pdf: "application/pdf",
+  md: "text/markdown; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+};
+
+// Must run before app ready (Electron contract for privileged schemes).
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "box",
+    privileges: { standard: true, secure: true, stream: true },
+  },
+]);
 
 async function scanDir(root: string, rel = ""): Promise<WorkspaceFile[]> {
   const out: WorkspaceFile[] = [];
@@ -290,6 +322,24 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
+  // Media protocol: box://f/<urlencoded workspace-relative path>.
+  protocol.handle("box", async (req) => {
+    const root = session?.root;
+    if (!root) return new Response("no workspace", { status: 404 });
+    const rel = decodeURIComponent(new URL(req.url).pathname).replace(
+      /^\/+/,
+      "",
+    );
+    const abs = resolveInside(root, rel);
+    if (abs === null) return new Response("forbidden", { status: 403 });
+    const bytes = await readFile(abs).catch(() => null);
+    if (bytes === null) return new Response("not found", { status: 404 });
+    const ext = rel.split(".").pop()?.toLowerCase() ?? "";
+    return new Response(new Uint8Array(bytes), {
+      headers: { "Content-Type": MIME[ext] ?? "application/octet-stream" },
+    });
+  });
+
   ipcMain.handle("workspace:open", async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     const r = await dialog.showOpenDialog(win!, {

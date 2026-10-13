@@ -2,7 +2,7 @@
 // Renderer store - Zustand 5 (surveyed slot). Workspace surface + board
 // state; camera stays component-local inside the Viewport seam.
 
-import type { Board, CanvasEdge, ProblemItem } from "@box/core";
+import type { Board, CanvasEdge, CanvasNode, ProblemItem } from "@box/core";
 import { create } from "zustand";
 
 export interface WorkspaceFile {
@@ -24,6 +24,9 @@ export interface BoxState {
   openBoard: (path: string, board: Board, problems: ProblemItem[]) => void;
   closeBoard: () => void;
   moveNode: (id: string, x: number, y: number) => void;
+  addNode: (node: CanvasNode) => void;
+  removeNode: (id: string) => void;
+  updateNode: (id: string, patch: Record<string, unknown>) => void;
   addEdge: (edge: CanvasEdge) => void;
   removeEdge: (edgeId: string) => void;
 }
@@ -50,6 +53,36 @@ export const useBoxStore = create<BoxState>((set) => ({
               ...s.board,
               nodes: s.board.nodes.map((n) =>
                 n.id === id ? { ...n, x, y } : n,
+              ),
+            },
+          },
+    ),
+  addNode: (node) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : { board: { ...s.board, nodes: [...s.board.nodes, node] } },
+    ),
+  removeNode: (id) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : {
+            board: {
+              ...s.board,
+              nodes: s.board.nodes.filter((n) => n.id !== id),
+            },
+          },
+    ),
+  updateNode: (id, patch) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : {
+            board: {
+              ...s.board,
+              nodes: s.board.nodes.map((n) =>
+                n.id === id ? ({ ...n, ...patch } as CanvasNode) : n,
               ),
             },
           },
