@@ -15,12 +15,12 @@ standalone Electron app that happens to read the same `.canvas` + `.md` formats 
 
 ## Current state
 
-| Area             | State                                                                                                                                                                                                                               |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Application code | **None - pre-scaffold.** Stage 0 (see `docs/ROADMAP.md`)                                                                                                                                                                            |
-| Documentation    | **Contract-grade and authoritative:** PRD, DATA-MODEL (formats + sync), ARCHITECTURE (packages + verified facts), DEVOPS (pinned toolchain), TEST-PLAN, SECURITY-THREATS, RESOURCES, GLOSSARY, research/SOTA-SURVEY, ADRs 0001-0005 |
-| `reference/`     | 14 donor repos cloned for organ-donor reuse (see `docs/ARCHITECTURE.md` §Salvage Map). **Never imported by shipped code.**                                                                                                          |
-| FOSS posture     | Private (`LICENSE` = UNLICENSED marker, OQ-8 pending). Community-health set complete: CoC, SECURITY, GOVERNANCE, THIRD_PARTY_NOTICES, .github templates.                                                                            |
+| Area             | State                                                                                                                                                                                                                                  |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Application code | **Stage 0 scaffold exists:** `@box/core` kernel (parsers, WritePlan sync, reconcile, watch classify - 38 tests green), `@box/ui` file-list surface, `apps/desktop` Electron shell (open folder -> scan -> list). No canvas yet (OQ-7). |
+| Documentation    | **Contract-grade and authoritative:** PRD, DATA-MODEL (formats + sync), ARCHITECTURE (packages + verified facts), DEVOPS (pinned toolchain), TEST-PLAN, SECURITY-THREATS, RESOURCES, GLOSSARY, research/SOTA-SURVEY, ADRs 0001-0005    |
+| `reference/`     | 14 donor repos cloned for organ-donor reuse (see `docs/ARCHITECTURE.md` §Salvage Map). **Never imported by shipped code.**                                                                                                             |
+| FOSS posture     | Private (`LICENSE` = UNLICENSED marker, OQ-8 pending). Community-health set complete: CoC, SECURITY, GOVERNANCE, THIRD_PARTY_NOTICES, .github templates.                                                                               |
 
 ## Non-negotiables (short list - full rationale in PRD §Pillars)
 
