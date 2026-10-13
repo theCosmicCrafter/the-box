@@ -56,6 +56,14 @@ fn cmd_err(e: impl std::fmt::Display) -> CmdResult {
 
 const FORBIDDEN: &[char] = &['<', '>', ':', '"', '\\', '|', '?', '*'];
 
+// Windows device names are illegal file stems on Windows no matter the
+// extension (con.txt, nul.png both fail there) but legal on macOS/Linux -
+// a workspace authored there must never mint names Windows can't open.
+const RESERVED_STEMS: &[&str] = &[
+    "con", "prn", "aux", "nul", "clock$", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
+    "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
 fn is_path_rel(p: &str) -> bool {
     if p.is_empty() {
         return false;
@@ -504,6 +512,10 @@ fn sanitize_filename(name: &str) -> String {
     }
     if out.is_empty() || out == "." || out == ".." {
         out = "file".to_string();
+    }
+    let stem = out.split('.').next().unwrap_or("");
+    if RESERVED_STEMS.contains(&stem.to_ascii_lowercase().as_str()) {
+        out = format!("file-{out}");
     }
     out.truncate(180); // stay comfortably under NTFS 255
     out

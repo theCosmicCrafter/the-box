@@ -71,6 +71,29 @@ tree: `js-yaml`, `fflate`, `three`, `perfect-freehand`, `@tauri-apps/api`.
 - Path validation `resolve_inside` is parity-tested against `box-core`
   `isPathRel` (golden table in `src-tauri/src/adversarial.rs`).
 
+## Cross-platform audit (2026-10-13, pre-Windows-release)
+
+Every platform-coupled surface was checked; all features are already
+universal:
+
+| surface              | implementation                                                                                                                         | status                                                                          |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| open/reveal external | `opener` crate (explorer / `open -R` / xdg-open)                                                                                       | universal                                                                       |
+| trash                | `trash` crate (Recycle Bin / macOS Trash)                                                                                              | universal                                                                       |
+| file pickers         | `rfd` native dialogs                                                                                                                   | universal                                                                       |
+| fs watcher           | `notify`                                                                                                                               | universal                                                                       |
+| media URLs           | `platform()` cmd → `box.localhost` on Windows, real `box://` elsewhere                                                                 | universal                                                                       |
+| shortcuts            | `ctrl \|\| meta`, `Delete \|\| Backspace`                                                                                              | universal                                                                       |
+| clipboard paste      | `navigator.clipboard`                                                                                                                  | universal                                                                       |
+| rel paths            | `/` canonical; `is_path_rel` rejects `\\`, drive letters, `..`                                                                         | universal                                                                       |
+| CSP                  | covers both `box:` and `https://box.localhost`                                                                                         | universal                                                                       |
+| minted filenames     | `sanitize_filename` strips forbidden chars **and** Windows device stems (`con`, `nul`, `aux`, `com1-9`, `lpt1-9`, `clock$` → `file-*`) | fixed this pass - Mac-created workspaces must not mint names Windows can't open |
+| bundle identifier    | was `dev.thebox.app` (`.app` suffix collides with macOS bundle ext)                                                                    | fixed → `dev.thebox.canvas`                                                     |
+
+Left for the Mac pass (bundle/config, not features): `icon.icns` for the
+.app bundle; WKWebView media-codec spot-checks; `useHttpsScheme` is a
+no-op there (real `box://` registers natively).
+
 ## What stays unverified (honest list)
 
 - macOS/WKWebView presenter pass (Stage 5; needs the Mac)

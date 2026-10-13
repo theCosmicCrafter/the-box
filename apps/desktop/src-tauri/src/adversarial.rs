@@ -294,6 +294,21 @@ fn sanitize_filename_cleans_os_garbage() {
 }
 
 #[test]
+fn sanitize_filename_renames_windows_devices() {
+    // Legal on macOS/Linux, unopenable on Windows - minted names must be
+    // least-common-denominator safe since workspaces travel cross-OS.
+    assert_eq!(sanitize_filename("con"), "file-con");
+    assert_eq!(sanitize_filename("nul.md"), "file-nul.md");
+    assert_eq!(sanitize_filename("COM1.txt"), "file-COM1.txt");
+    assert_eq!(sanitize_filename("lpt9.png"), "file-lpt9.png");
+    assert_eq!(sanitize_filename("clock$"), "file-clock$");
+    // Prefixes/suffixes break device-name status - pass through.
+    assert_eq!(sanitize_filename("concert.md"), "concert.md");
+    assert_eq!(sanitize_filename("a.com1"), "a.com1");
+    assert_eq!(sanitize_filename("com10.txt"), "com10.txt");
+}
+
+#[test]
 fn unique_dest_numbers_collisions() {
     let d = tmpdir("uniq");
     fs::write(d.join("a.txt"), b"1").unwrap();

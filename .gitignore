@@ -20,4 +20,5 @@ reference/
 
 # Rust build artifacts
 **/src-tauri/target/
+**/src-tauri/target-test/
 **/src-tauri/gen/

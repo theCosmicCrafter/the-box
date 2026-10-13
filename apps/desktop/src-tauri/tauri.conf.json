@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "The Box",
   "version": "0.1.0",
-  "identifier": "dev.thebox.app",
+  "identifier": "dev.thebox.canvas",
   "build": {
     "beforeDevCommand": "npm run dev:renderer",
     "devUrl": "http://localhost:5173",
