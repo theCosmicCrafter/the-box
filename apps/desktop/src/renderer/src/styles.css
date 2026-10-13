@@ -1,0 +1,92 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0f1115;
+  color: #d8dce4;
+}
+
+.shell {
+  padding: 24px 32px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.tagline {
+  margin: 4px 0 24px;
+  color: #7a8291;
+  font-size: 13px;
+}
+
+.welcome {
+  padding: 48px;
+  border: 1px dashed #3a4150;
+  border-radius: 8px;
+  text-align: center;
+}
+
+button {
+  background: #2f6fed;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #3d7cf5;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.toolbar code {
+  flex: 1;
+  color: #9aa3b2;
+}
+
+.file-list h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7a8291;
+  border-bottom: 1px solid #232833;
+  padding-bottom: 4px;
+}
+
+.file-list .count {
+  color: #4d5665;
+  margin-left: 6px;
+}
+
+.file-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+}
+
+.file-list li {
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.file-list code {
+  color: #c6cdd9;
+}
+
+.empty {
+  color: #4d5665;
+}

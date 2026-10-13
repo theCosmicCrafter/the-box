@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/box-core" },
+    { "path": "packages/box-ui" },
+    { "path": "apps/desktop" }
+  ]
+}

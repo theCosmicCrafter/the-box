@@ -1,0 +1,18 @@
+node_modules/
+dist/
+out/
+dist-types/
+coverage/
+*.log
+.DS_Store
+Thumbs.db
+
+# electron-vite
+out/
+
+# test artifacts
+tests/fixtures/work/
+*.tmp
+
+# donor repos: local study material, never tracked
+reference/

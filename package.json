@@ -1,0 +1,33 @@
+{
+  "name": "the-box",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A lighter Obsidian with a smarter canvas. Objects are files. Arrows are notes. Edits round-trip.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @box/desktop",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test": "npm test --workspaces --if-present",
+    "test:invariants": "vitest run --dir packages/box-core/test invariant",
+    "test:formats": "vitest run --dir packages/box-core/test formats"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3",
+    "eslint": "10.12.0",
+    "@eslint/js": "10.0.1",
+    "typescript-eslint": "8.71.2",
+    "globals": "17.13.0",
+    "vitest": "5.0.4"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=10.0.0"
+  }
+}

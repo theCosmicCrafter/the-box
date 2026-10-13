@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist-types",
+    "tsBuildInfoFile": "dist-types/tsconfig.tsbuildinfo",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "emitDeclarationOnly": true
+  },
+  "include": ["src/**/*", "electron.vite.config.ts"],
+  "references": [
+    { "path": "../../packages/box-core" },
+    { "path": "../../packages/box-ui" }
+  ]
+}
