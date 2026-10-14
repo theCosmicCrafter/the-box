@@ -9,6 +9,7 @@ import type { Board, CanvasNode, InkStroke, Side } from "@box/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
 import { DEFAULT_CAMERA, zoomToFit } from "./camera.js";
+import { nodeVisible, worldViewport } from "./cull.js";
 import type { DraftEdge } from "./EdgeLayer.js";
 import { EdgeLayer, anchor } from "./EdgeLayer.js";
 import type { InkPoint } from "./ink.js";
@@ -28,8 +29,9 @@ export interface BoardViewProps {
   editingNode?: string | null | undefined;
   /** File node in content-edit mode + its full current text (FR-104). */
   fileEdit?: { nodeId: string; text: string } | null | undefined;
-  /** Ink mode: draw captures strokes on file nodes, erase removes them. */
-  inkMode?: "off" | "draw" | "erase" | undefined;
+  /** Ink mode: draw captures strokes on file nodes, erase removes them,
+   *  edit selects+drags existing strokes (FR-307 partial). */
+  inkMode?: "off" | "draw" | "erase" | "edit" | undefined;
   /** Active ink stroke color (CSS color, default "#e8b931"). */
   inkColor?: string | undefined;
   /** Active ink stroke width in px (default 10). */
@@ -48,8 +50,14 @@ export interface BoardViewProps {
   onInkStroke?: (nodeId: string, points: InkPoint[]) => void;
   /** Eraser pass over node-local point (FR-106). */
   onInkErase?: (nodeId: string, lx: number, ly: number) => void;
+  /** Ink edit mode: stroke dragged by (dx, dy) node-local px. */
+  onInkStrokeMove?:
+    | ((nodeId: string, strokeIndex: number, dx: number, dy: number) => void)
+    | undefined;
   /** Imperative focus request: camera fits this node when nonce changes. */
   focusNode?: { id: string; nonce: number } | null | undefined;
+  /** Imperative zoom-to-fit request: camera fits all nodes (Shift+1). */
+  fitAllRequest?: { nonce: number } | undefined;
   onDeleteNode?: (id: string) => void;
   onCreateEdge?: (
     fromNodeId: string,
@@ -143,6 +151,43 @@ export function BoardView(props: BoardViewProps) {
     );
     // mount-only: fit once when the board opens
   }, []);
+
+  // Zoom-to-fit request (Shift+1): refit all nodes when nonce changes.
+  useEffect(() => {
+    if (!props.fitAllRequest) return;
+    const el = vpRef.current;
+    if (!el || props.board.nodes.length === 0) return;
+    const r = el.getBoundingClientRect();
+    const xs = props.board.nodes.map((n) => [n.x, n.x + n.width]).flat();
+    const ys = props.board.nodes.map((n) => [n.y, n.y + n.height]).flat();
+    setCam(
+      zoomToFit(
+        {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          w: Math.max(...xs) - Math.min(...xs),
+          h: Math.max(...ys) - Math.min(...ys),
+        },
+        r.width,
+        r.height,
+      ),
+    );
+  }, [props.fitAllRequest?.nonce]);
+
+  // Viewport size for culling - ResizeObserver so panel toggles re-measure.
+  const [vpSize, setVpSize] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = vpRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      setVpSize({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    const r = el.getBoundingClientRect();
+    setVpSize({ w: r.width, h: r.height });
+    return () => ro.disconnect();
+  }, []);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -154,6 +199,123 @@ export function BoardView(props: BoardViewProps) {
     nodeId: string;
     points: InkPoint[];
   } | null>(null);
+
+  // Perf (500-node pan): NodeView is memoized, so every callback it receives
+  // must be referentially stable - otherwise camera state changes re-render
+  // all nodes every frame. Live values (props, camera, draft) travel through
+  // refs; handlers read them at event time.
+  const propsRef = useRef(props);
+  propsRef.current = props;
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+
+  const nodeHandlers = useMemo(() => {
+    const nodeById = (id: string) =>
+      propsRef.current.board.nodes.find((x) => x.id === id);
+    const nodeAtW = (wx: number, wy: number): CanvasNode | null => {
+      const nodes = propsRef.current.board.nodes;
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i]!;
+        if (
+          wx >= n.x &&
+          wx <= n.x + n.width &&
+          wy >= n.y &&
+          wy <= n.y + n.height
+        )
+          return n;
+      }
+      return null;
+    };
+    return {
+      onSelect: (id: string) => {
+        setSelected(id);
+        setSelectedEdge(null);
+        propsRef.current.onSelectEdge?.(null);
+      },
+      onMove: (id: string, x: number, y: number) =>
+        propsRef.current.onMove?.(id, x, y),
+      onResize: (id: string, w: number, h: number) =>
+        propsRef.current.onResize?.(id, w, h),
+      onCommit: () => propsRef.current.onCommit?.(),
+      onTextCommit: (id: string, t: string) =>
+        propsRef.current.onTextCommit?.(id, t),
+      onFileCommit: (id: string, t: string) =>
+        propsRef.current.onFileCommit?.(id, t),
+      onFileEditCancel: (id: string) => propsRef.current.onFileEditCancel?.(id),
+      onEditFile: (n: CanvasNode) => propsRef.current.onEditFile?.(n),
+      onInkStart: (id: string, lx: number, ly: number, p: number) => {
+        const next = { nodeId: id, points: [{ x: lx, y: ly, p }] };
+        inkDraftRef.current = next;
+        setInkDraft(next);
+      },
+      onInkMove: (id: string, lx: number, ly: number, p: number) => {
+        const d = inkDraftRef.current;
+        if (!d || d.nodeId !== id) return;
+        const next = { ...d, points: [...d.points, { x: lx, y: ly, p }] };
+        inkDraftRef.current = next;
+        setInkDraft(next);
+      },
+      onInkEnd: (id: string) => {
+        const cur = inkDraftRef.current;
+        if (cur && cur.nodeId === id && cur.points.length > 0)
+          propsRef.current.onInkStroke?.(id, cur.points);
+        inkDraftRef.current = null;
+        setInkDraft(null);
+      },
+      onInkErase: (id: string, lx: number, ly: number) =>
+        propsRef.current.onInkErase?.(id, lx, ly),
+      onInkStrokeMove: (id: string, i: number, dx: number, dy: number) =>
+        propsRef.current.onInkStrokeMove?.(id, i, dx, dy),
+      onInspect: (id: string) => propsRef.current.onInspectNode?.(id),
+      onOpenExternal: (rel: string) => propsRef.current.onOpenFile?.(rel),
+      onReveal: (rel: string) => propsRef.current.onRevealFile?.(rel),
+      onContextMenu: (n: CanvasNode, cx: number, cy: number) =>
+        propsRef.current.onNodeMenu?.(n, cx, cy),
+      onDraftStart: (nodeId: string, side: Side) => {
+        const n = nodeById(nodeId);
+        if (!n) return;
+        const w = anchor(n, side);
+        setDraft({
+          fromId: nodeId,
+          fromSide: side,
+          x: w.x,
+          y: w.y,
+          overId: null,
+        });
+      },
+      onDraftMove: (wx: number, wy: number) => {
+        setDraft((d) => {
+          if (!d) return d;
+          const over = nodeAtW(wx, wy);
+          return {
+            ...d,
+            x: wx,
+            y: wy,
+            overId: over && over.id !== d.fromId ? over.id : null,
+          };
+        });
+      },
+      onDraftEnd: (wx: number, wy: number) => {
+        const d = draftRef.current;
+        if (d) {
+          const over = nodeAtW(wx, wy);
+          if (over && over.id !== d.fromId) {
+            propsRef.current.onCreateEdge?.(
+              d.fromId,
+              over.id,
+              d.fromSide,
+              sideToward(over, wx, wy),
+            );
+          } else if (over === null) {
+            propsRef.current.onDropEdgeAt?.(d.fromId, d.fromSide, wx, wy);
+          }
+        }
+        setDraft(null);
+      },
+    };
+  }, []);
 
   // Jump-to-object: platform sets {id, nonce}; camera fits the node once
   // per request (FR-205).
@@ -212,14 +374,20 @@ export function BoardView(props: BoardViewProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [selected, selectedEdge, props.onDeleteEdge, props.onDeleteNode]);
 
-  const nodeAt = (wx: number, wy: number): CanvasNode | null => {
-    for (let i = props.board.nodes.length - 1; i >= 0; i--) {
-      const n = props.board.nodes[i]!;
-      if (wx >= n.x && wx <= n.x + n.width && wy >= n.y && wy <= n.y + n.height)
-        return n;
-    }
-    return null;
-  };
+  // tldraw culling: off-viewport nodes get display:none (still in the DOM -
+  // hit-testable, selectable, exportable) but skip paint/layout cost.
+  const view = useMemo(
+    () => (vpSize ? worldViewport(cam, vpSize.w, vpSize.h) : null),
+    [cam, vpSize],
+  );
+  const unCullable = useMemo(() => {
+    const s = new Set<string>();
+    if (selected) s.add(selected);
+    if (props.editingNode) s.add(props.editingNode);
+    if (props.fileEdit?.nodeId) s.add(props.fileEdit.nodeId);
+    if (inkDraft?.nodeId) s.add(inkDraft.nodeId);
+    return s;
+  }, [selected, props.editingNode, props.fileEdit?.nodeId, inkDraft?.nodeId]);
 
   const draftGeom: DraftEdge | null = useMemo(() => {
     if (!draft) return null;
@@ -249,7 +417,9 @@ export function BoardView(props: BoardViewProps) {
           ? "ink-draw"
           : props.inkMode === "erase"
             ? "ink-erase"
-            : undefined
+            : props.inkMode === "edit"
+              ? "ink-edit"
+              : undefined
       }
       onBackgroundClick={() => {
         setSelected(null);
@@ -264,6 +434,7 @@ export function BoardView(props: BoardViewProps) {
         board={props.board}
         brokenEdges={brokenEdges}
         selectedId={selectedEdge}
+        viewRect={view ?? undefined}
         onSelect={(id) => {
           selectEdge(id);
           setSelected(null);
@@ -274,14 +445,13 @@ export function BoardView(props: BoardViewProps) {
         <NodeView
           key={n.id}
           node={n}
-          camera={cam}
+          cameraRef={camRef}
+          culled={
+            view !== null && !unCullable.has(n.id) && !nodeVisible(n, view)
+          }
           selected={selected === n.id}
           broken={brokenNodes.has(n.id)}
           dropTarget={draft?.overId === n.id}
-          onSelect={(id) => {
-            setSelected(id);
-            selectEdge(null);
-          }}
           resolveMedia={props.resolveMedia}
           excerpt={n.type === "file" ? props.fileTexts?.get(n.file) : undefined}
           fileSize={
@@ -295,76 +465,7 @@ export function BoardView(props: BoardViewProps) {
           }
           ink={props.inkByNodeId?.get(n.id)}
           inkMode={props.inkMode}
-          onMove={props.onMove ?? (() => {})}
-          onResize={props.onResize ?? (() => {})}
-          onCommit={props.onCommit ?? (() => {})}
-          onTextCommit={props.onTextCommit ?? (() => {})}
-          onFileCommit={props.onFileCommit}
-          onFileEditCancel={props.onFileEditCancel}
-          onEditFile={props.onEditFile}
-          onInkStart={(id, lx, ly, p) => {
-            const next = { nodeId: id, points: [{ x: lx, y: ly, p }] };
-            inkDraftRef.current = next;
-            setInkDraft(next);
-          }}
-          onInkMove={(id, lx, ly, p) => {
-            const d = inkDraftRef.current;
-            if (!d || d.nodeId !== id) return;
-            const next = { ...d, points: [...d.points, { x: lx, y: ly, p }] };
-            inkDraftRef.current = next;
-            setInkDraft(next);
-          }}
-          onInkEnd={(id) => {
-            const cur = inkDraftRef.current;
-            if (cur && cur.nodeId === id && cur.points.length > 0)
-              props.onInkStroke?.(id, cur.points);
-            inkDraftRef.current = null;
-            setInkDraft(null);
-          }}
-          onInkErase={props.onInkErase}
-          onInspect={props.onInspectNode}
-          onOpenExternal={props.onOpenFile}
-          onReveal={props.onRevealFile}
-          onContextMenu={props.onNodeMenu}
-          onDraftStart={(nodeId, side) => {
-            const w = anchor(n, side);
-            setDraft({
-              fromId: nodeId,
-              fromSide: side,
-              x: w.x,
-              y: w.y,
-              overId: null,
-            });
-          }}
-          onDraftMove={(wx, wy) => {
-            setDraft((d) => {
-              if (!d) return d;
-              const over = nodeAt(wx, wy);
-              return {
-                ...d,
-                x: wx,
-                y: wy,
-                overId: over && over.id !== d.fromId ? over.id : null,
-              };
-            });
-          }}
-          onDraftEnd={(wx, wy) => {
-            if (draft) {
-              const over = nodeAt(wx, wy);
-              if (over && over.id !== draft.fromId) {
-                props.onCreateEdge?.(
-                  draft.fromId,
-                  over.id,
-                  draft.fromSide,
-                  sideToward(over, wx, wy),
-                );
-              } else if (over === null) {
-                // tldraw behavior: arrow into space makes a thing to point at.
-                props.onDropEdgeAt?.(draft.fromId, draft.fromSide, wx, wy);
-              }
-            }
-            setDraft(null);
-          }}
+          {...nodeHandlers}
         />
       ))}
       {(() => {

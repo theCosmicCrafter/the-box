@@ -9,9 +9,10 @@
 
 import type { CanvasNode, FileKind, InkStroke, Side } from "@box/core";
 import { baseName, fileKind, inkStrokeColor } from "@box/core";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
-import { screenToWorld } from "./camera.js";
+import { DEFAULT_CAMERA, screenToWorld } from "./camera.js";
+import { pickStroke } from "./ink.js";
 import {
   CodeView,
   HtmlPreview,
@@ -35,12 +36,32 @@ const HANDLE_POS: Record<Side, React.CSSProperties> = {
 
 const MIN_NODE = 40;
 
+/** JSON Canvas preset palette (Obsidian-readable "1"-"6") mapped to muted
+ * dark-theme tints; hex strings pass through unchanged. */
+export const NODE_COLOR_PRESETS: Record<string, string> = {
+  "1": "#e5484d",
+  "2": "#f76b15",
+  "3": "#e8b931",
+  "4": "#30a46c",
+  "5": "#12a594",
+  "6": "#8e4ec6",
+};
+
+export function nodeTint(color: string | undefined): string | null {
+  if (color === undefined || color === "") return null;
+  return NODE_COLOR_PRESETS[color] ?? color;
+}
+
 export interface NodeViewProps {
   node: CanvasNode;
-  camera: Camera;
+  /** Live camera (ref, not a prop value): pan/zoom would otherwise re-render
+   * every node each frame; handlers read `.current` at event time. */
+  cameraRef: React.RefObject<Camera>;
   selected: boolean;
   broken: boolean;
   dropTarget?: boolean;
+  /** Off-viewport: display:none (tldraw culling - stays in DOM, no paint). */
+  culled?: boolean | undefined;
   /** Resolves a workspace-relative file path to a displayable URL. */
   resolveMedia?: ((rel: string) => string) | undefined;
   /** Text excerpt for document file nodes (loaded by the platform). */
@@ -53,8 +74,8 @@ export interface NodeViewProps {
   fileEditText?: string | undefined;
   /** Ink sidecar strokes for this node (parsed by the platform). */
   ink?: InkStroke[] | undefined;
-  /** Board ink mode - draw/erase reroute pointer gestures on file nodes. */
-  inkMode?: "off" | "draw" | "erase" | undefined;
+  /** Board ink mode - draw/erase/edit reroute pointer gestures on file nodes. */
+  inkMode?: "off" | "draw" | "erase" | "edit" | undefined;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
@@ -72,6 +93,10 @@ export interface NodeViewProps {
     ((nodeId: string, lx: number, ly: number, p: number) => void) | undefined;
   onInkEnd?: ((nodeId: string) => void) | undefined;
   onInkErase?: ((nodeId: string, lx: number, ly: number) => void) | undefined;
+  /** Ink edit mode: a stroke was dragged by (dx, dy) node-local px. */
+  onInkStrokeMove?:
+    | ((nodeId: string, strokeIndex: number, dx: number, dy: number) => void)
+    | undefined;
   onDraftStart?: (nodeId: string, side: Side) => void;
   onDraftMove?: (wx: number, wy: number) => void;
   onDraftEnd?: (wx: number, wy: number) => void;
@@ -398,8 +423,10 @@ function label(n: CanvasNode): string {
   }
 }
 
-export function NodeView(props: NodeViewProps) {
-  const { node, camera } = props;
+export const NodeView = memo(function NodeView(props: NodeViewProps) {
+  const { node } = props;
+  // Live camera for pointer math - read at event time, never re-renders us.
+  const camNow = () => props.cameraRef.current ?? DEFAULT_CAMERA;
   const drag = useRef<{
     px: number;
     py: number;
@@ -414,6 +441,12 @@ export function NodeView(props: NodeViewProps) {
   } | null>(null);
   const inking = useRef(false);
   const erasing = useRef(false);
+  // Ink edit mode: which stroke is selected + its live drag delta.
+  const inkMove = useRef<{ idx: number; sx: number; sy: number } | null>(null);
+  const [inkSelIdx, setInkSelIdx] = useState<number | null>(null);
+  const [inkDelta, setInkDelta] = useState<{ dx: number; dy: number } | null>(
+    null,
+  );
   const [selfEditing, setSelfEditing] = useState(false);
   const editing = selfEditing || props.editing === true;
   const [draftText, setDraftText] = useState(
@@ -447,6 +480,21 @@ export function NodeView(props: NodeViewProps) {
       props.onInkErase?.(node.id, w.x - node.x, w.y - node.y);
       return;
     }
+    if (props.inkMode === "edit" && node.type === "file") {
+      const w = worldOf(e);
+      const lx = w.x - node.x;
+      const ly = w.y - node.y;
+      // Topmost stroke wins - distance picking, not strict interior:
+      // a click near a thin ribbon means "that stroke" (tldraw pattern).
+      const strokes = props.ink ?? [];
+      const hit = pickStroke(strokes, lx, ly, 12 / camNow().z);
+      setInkSelIdx(hit >= 0 ? hit : null);
+      if (hit >= 0) {
+        inkMove.current = { idx: hit, sx: lx, sy: ly };
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      }
+      return;
+    }
     drag.current = { px: e.clientX, py: e.clientY, ox: node.x, oy: node.y };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     props.onSelect(node.id);
@@ -463,10 +511,18 @@ export function NodeView(props: NodeViewProps) {
       props.onInkErase?.(node.id, w.x - node.x, w.y - node.y);
       return;
     }
+    if (inkMove.current) {
+      const w = worldOf(e);
+      setInkDelta({
+        dx: w.x - node.x - inkMove.current.sx,
+        dy: w.y - node.y - inkMove.current.sy,
+      });
+      return;
+    }
     if (!drag.current) return;
-    const a = screenToWorld(camera, 0, 0);
+    const a = screenToWorld(camNow(), 0, 0);
     const b = screenToWorld(
-      camera,
+      camNow(),
       e.clientX - drag.current.px,
       e.clientY - drag.current.py,
     );
@@ -486,6 +542,15 @@ export function NodeView(props: NodeViewProps) {
       erasing.current = false;
       props.onInkEnd?.(node.id);
     }
+    if (inkMove.current) {
+      const m = inkMove.current;
+      inkMove.current = null;
+      const d = inkDelta;
+      setInkDelta(null);
+      if (d !== null && (d.dx !== 0 || d.dy !== 0)) {
+        props.onInkStrokeMove?.(node.id, m.idx, d.dx, d.dy);
+      }
+    }
     if (drag.current) {
       drag.current = null;
       props.onCommit();
@@ -496,7 +561,7 @@ export function NodeView(props: NodeViewProps) {
     const vp = (e.currentTarget as Element).closest(".canvas-viewport");
     const r = vp?.getBoundingClientRect();
     return screenToWorld(
-      camera,
+      camNow(),
       e.clientX - (r?.left ?? 0),
       e.clientY - (r?.top ?? 0),
     );
@@ -545,12 +610,14 @@ export function NodeView(props: NodeViewProps) {
     }
   };
 
+  const tint = nodeTint(node.color);
   const cls = [
     "node",
     `node-${node.type}`,
     props.selected ? "selected" : "",
     props.broken ? "broken" : "",
     props.dropTarget ? "drop-target" : "",
+    tint !== null ? "tinted" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -570,6 +637,10 @@ export function NodeView(props: NodeViewProps) {
         top: node.y,
         width: node.width,
         height: node.height,
+        ...(props.culled === true ? { display: "none" } : {}),
+        ...(tint !== null
+          ? ({ "--node-tint": tint } as React.CSSProperties)
+          : {}),
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -578,10 +649,12 @@ export function NodeView(props: NodeViewProps) {
         drag.current = null;
         inking.current = false;
         erasing.current = false;
+        inkMove.current = null;
+        setInkDelta(null);
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
-        if (props.inkMode === "draw" || props.inkMode === "erase") return;
+        if (props.inkMode !== undefined && props.inkMode !== "off") return;
         if (node.type === "text") setSelfEditing(true);
         else if (node.type === "file") {
           if (e.altKey) props.onReveal?.(node.file);
@@ -658,7 +731,23 @@ export function NodeView(props: NodeViewProps) {
             aria-hidden
           >
             {props.ink.map((s, i) => (
-              <path key={i} d={s.d} fill={inkStrokeColor(s, "#e8b931")} />
+              <path
+                key={i}
+                d={s.d}
+                fill={inkStrokeColor(s, "#e8b931")}
+                className={
+                  props.inkMode === "edit" && inkSelIdx === i
+                    ? "ink-selected"
+                    : undefined
+                }
+                transform={
+                  inkMove.current !== null &&
+                  inkSelIdx === i &&
+                  inkDelta !== null
+                    ? `translate(${inkDelta.dx} ${inkDelta.dy})`
+                    : undefined
+                }
+              />
             ))}
           </svg>
         )}
@@ -683,4 +772,4 @@ export function NodeView(props: NodeViewProps) {
       )}
     </div>
   );
-}
+});

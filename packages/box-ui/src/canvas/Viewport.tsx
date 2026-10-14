@@ -42,6 +42,18 @@ export function Viewport(props: ViewportProps) {
   const spaceDown = useRef(false);
   const panState = useRef<{ px: number; py: number } | null>(null);
   const moved = useRef(false);
+  // Gesture events can fire faster than React commits (trackpad pinch
+  // bursts). camRef accumulates between renders so no event is dropped;
+  // it re-syncs to the committed camera on every render.
+  const camRef = useRef(cam);
+  camRef.current = cam;
+  const applyCam = useCallback(
+    (next: Camera) => {
+      camRef.current = next;
+      setCam(next);
+    },
+    [setCam],
+  );
 
   // Wheel must be non-passive to preventDefault (pinch-zoom browser nav).
   useEffect(() => {
@@ -51,21 +63,21 @@ export function Viewport(props: ViewportProps) {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         const r = el.getBoundingClientRect();
-        setCam(
+        applyCam(
           zoomAt(
-            cam,
+            camRef.current,
             e.clientX - r.left,
             e.clientY - r.top,
             Math.exp(-e.deltaY * 0.002),
           ),
         );
       } else {
-        setCam(panBy(cam, e.deltaX, e.deltaY));
+        applyCam(panBy(camRef.current, e.deltaX, e.deltaY));
       }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [cam, setCam]);
+  }, [applyCam]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -99,7 +111,7 @@ export function Viewport(props: ViewportProps) {
     const dx = e.clientX - panState.current.px;
     const dy = e.clientY - panState.current.py;
     if (Math.abs(dx) + Math.abs(dy) > 2) moved.current = true;
-    setCam(panBy(cam, dx, dy));
+    applyCam(panBy(camRef.current, dx, dy));
     panState.current = { px: e.clientX, py: e.clientY };
   };
 

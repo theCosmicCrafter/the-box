@@ -64,7 +64,7 @@ function buildTree(files: WorkspaceFile[]): TreeNode[] {
   return root.children;
 }
 
-function fileIcon(path: string): IconName {
+export function fileIcon(path: string): IconName {
   const p = path.toLowerCase();
   if (p.endsWith(".box.canvas")) return "board";
   if (/\.(png|jpe?g|webp|gif|avif|tiff?)$/.test(p)) return "image";

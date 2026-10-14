@@ -78,6 +78,10 @@ export async function installBoxBridge(): Promise<void> {
       invoke("open_external", { rel }),
     revealFile: (rel: string): Promise<CmdResult> =>
       invoke("reveal_file", { rel }),
+    // FR-305: user-picked app gets the file as argv[1] (detached spawn).
+    openWith: (rel: string, app: string): Promise<CmdResult> =>
+      invoke("fs_open_with", { rel, app }),
+    pickApp: (): Promise<string | null> => invoke("pick_app"),
     // Copy OS-side files into the workspace (drag-drop, picker results).
     importFiles: (paths: string[]): Promise<ImportResult> =>
       invoke("import_files", { paths }),

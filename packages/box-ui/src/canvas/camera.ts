@@ -12,6 +12,9 @@ export interface Camera {
 
 export const MIN_ZOOM = 0.1;
 export const MAX_ZOOM = 5;
+/** Fit-only floor: boards bigger than MIN_ZOOM can display still deserve a
+ * real "zoom to fit" - interactive zoom stays clamped (R-6). */
+export const FIT_MIN_ZOOM = 0.02;
 
 export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, z: 1 };
 
@@ -39,7 +42,9 @@ export function panBy(cam: Camera, dxScreen: number, dyScreen: number): Camera {
   return { ...cam, x: cam.x - dxScreen / cam.z, y: cam.y - dyScreen / cam.z };
 }
 
-/** Zoom keeping the world point under (sx, sy) fixed on screen. */
+/** Zoom keeping the world point under (sx, sy) fixed on screen.
+ * A camera already below MIN_ZOOM (set by zoom-to-fit on a huge board)
+ * zooms smoothly between FIT_MIN_ZOOM and MAX instead of snapping to MIN. */
 export function zoomAt(
   cam: Camera,
   sx: number,
@@ -48,7 +53,8 @@ export function zoomAt(
   lo = MIN_ZOOM,
   hi = MAX_ZOOM,
 ): Camera {
-  const z = clamp(cam.z * factor, lo, hi);
+  const floor = cam.z < lo ? FIT_MIN_ZOOM : lo;
+  const z = clamp(cam.z * factor, floor, hi);
   if (z === cam.z) return cam;
   const w = screenToWorld(cam, sx, sy);
   return { x: w.x - sx / z, y: w.y - sy / z, z };
@@ -64,7 +70,7 @@ export function zoomToFit(
 ): Camera {
   const z = clamp(
     Math.min((vw - padding * 2) / rect.w, (vh - padding * 2) / rect.h),
-    MIN_ZOOM,
+    FIT_MIN_ZOOM,
     hi,
   );
   return {

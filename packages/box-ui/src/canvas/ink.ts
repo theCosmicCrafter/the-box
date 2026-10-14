@@ -66,3 +66,91 @@ export function pointInPolygon(
   }
   return inside;
 }
+
+/**
+ * Translate every coordinate pair in a polygon `d` by (dx, dy). Returns null
+ * for non-polygon paths (bezier/arc) - caller refuses the move rather than
+ * corrupting foreign path data.
+ */
+export function translatePath(
+  d: string,
+  dx: number,
+  dy: number,
+): string | null {
+  const poly = pathToPolygon(d);
+  if (poly === null) return null;
+  const seg = poly
+    .map(([x, y]) => `${(x + dx).toFixed(1)} ${(y + dy).toFixed(1)}`)
+    .join(" L ");
+  return `M ${seg} Z`;
+}
+
+/** Bounding box of a polygon `d`, or null for unparseable/foreign paths. */
+export function pathBounds(
+  d: string,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const poly = pathToPolygon(d);
+  if (poly === null || poly.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of poly) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Distance from (px,py) to a stroke's filled outline: 0 when inside,
+ * else the distance to the nearest polygon edge. Returns Infinity for
+ * foreign (non-polygon) paths. Stroke picking uses this - a user clicking
+ * near a thin ribbon means "that stroke", not strict interior
+ * (tldraw picks by distance to the centerline the same way).
+ */
+export function distToStroke(px: number, py: number, d: string): number {
+  const poly = pathToPolygon(d);
+  if (poly === null || poly.length === 0) return Infinity;
+  if (pointInPolygon(px, py, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [x1, y1] = poly[j]!;
+    const [x2, y2] = poly[i]!;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    const t =
+      len2 === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / len2));
+    const ex = x1 + t * dx - px;
+    const ey = y1 + t * dy - py;
+    const dist = ex * ex + ey * ey;
+    if (dist < best) best = dist;
+  }
+  return Math.sqrt(best);
+}
+
+/** Pick the topmost stroke within `tol` px of the point - returns the
+ * stroke index or -1. Topmost = last in the array wins ties. */
+export function pickStroke(
+  strokes: readonly { d: string }[],
+  x: number,
+  y: number,
+  tol = 12,
+): number {
+  let bestIdx = -1;
+  let bestDist = Infinity;
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    const d = distToStroke(x, y, strokes[i]!.d);
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+    if (d === 0) break; // inside: nothing beats containment
+  }
+  return bestDist <= tol ? bestIdx : -1;
+}

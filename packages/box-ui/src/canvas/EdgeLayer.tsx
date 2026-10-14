@@ -8,6 +8,7 @@
 // prop renders the live preview while a connection is being drawn.
 
 import type { Board, CanvasEdge, CanvasNode, Side } from "@box/core";
+import { edgeVisible, type WorldRect } from "./cull.js";
 
 export const NORMALS: Record<Side, { nx: number; ny: number }> = {
   top: { nx: 0, ny: -1 },
@@ -72,6 +73,8 @@ export interface EdgeLayerProps {
   selectedId?: string | null;
   onSelect?: (edgeId: string | null) => void;
   draft?: DraftEdge | null;
+  /** World-space viewport rect; off-view edges get display:none (culled). */
+  viewRect?: WorldRect | undefined;
 }
 
 export function EdgeLayer({
@@ -80,6 +83,7 @@ export function EdgeLayer({
   selectedId,
   onSelect,
   draft,
+  viewRect,
 }: EdgeLayerProps) {
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
 
@@ -87,6 +91,12 @@ export function EdgeLayer({
     const from = byId.get(e.fromNode);
     const to = byId.get(e.toNode);
     if (!from && !to) return []; // both gone - surfaced via brokenEdges, no geometry exists
+    if (
+      viewRect !== undefined &&
+      e.id !== selectedId &&
+      !edgeVisible(from, to, viewRect)
+    )
+      return [];
     const a1 = from ? anchor(from, e.fromSide ?? "right") : null;
     const a2 = to ? anchor(to, e.toSide ?? "left") : null;
     const broken = brokenEdges.has(e.id) || !from || !to;

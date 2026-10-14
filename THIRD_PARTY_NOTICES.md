@@ -13,21 +13,24 @@ distribution (see `docs/adr/ADR-0005-license.md`). The only exclusions are
 
 ## Register
 
-| our file                                          | source | source license | adapted | left out |
-| ------------------------------------------------- | ------ | -------------- | ------- | -------- |
-| _(pending - first adaptation adds the first row)_ |        |                |         |          |
+| our file                                                                                                         | source                                 | source license    | adapted                                                                                                                                     | left out                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `apps/desktop/src-tauri/src/lib.rs` (`rename_with_retry`, `is_transient_lock`, fsync ordering in `write_atomic`) | `storytold/craft-libs` `crates/atomic` | Apache-2.0 OR MIT | Windows rename retry with exponential backoff on sharing/lock violations; sync_file < rename durability ordering; failed-rename tmp cleanup | trait/fault-injection layer, permission modes, symlink resolution, dir sync (Unix), WASM stubs |
 
 ## Candidate donors already surveyed (pre-register, for reference)
 
-| source                                                                  | license                           | intended use                                                |
-| ----------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------- |
-| `obsidian-master-control-mcp` (canvas.py, canvas_operations.py)         | ours (local project)              | port node/edge model, 14 ops, helpers → `box-core`          |
-| `CanvasMCPClient` frontend slices                                       | ours (local project)              | port camera/selection logic → `box-ui`                      |
-| `perfect-freehand` 1.2.3                                                | MIT                               | dependency (pinned), ink strokes                            |
-| `Lorien-main`                                                           | TBD-check                         | stroke-format reference patterns                            |
-| `AnimRef`, `GitNexus`, `reference-vault`, `PhotoMapAI`, `KAssetManager` | check per repo before any salvage | UX/index/semantic reference                                 |
-| `hokusai`, `brushlib-wasm`                                              | check (possible copyleft flag)    | Stage 5 brush option - patterns only until license verified |
-| `rea` (theCosmicCrafter fork of morluto/rea)                            | MIT                               | verification/forensics tool, not embedded                   |
+| source                                                                  | license                           | intended use                                                                                           |
+| ----------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `obsidian-master-control-mcp` (canvas.py, canvas_operations.py)         | ours (local project)              | port node/edge model, 14 ops, helpers → `box-core`                                                     |
+| `CanvasMCPClient` frontend slices                                       | ours (local project)              | port camera/selection logic → `box-ui`                                                                 |
+| `perfect-freehand` 1.2.3                                                | MIT                               | dependency (pinned), ink strokes                                                                       |
+| `Lorien-main`                                                           | TBD-check                         | stroke-format reference patterns                                                                       |
+| `AnimRef`, `GitNexus`, `reference-vault`, `PhotoMapAI`, `KAssetManager` | check per repo before any salvage | UX/index/semantic reference                                                                            |
+| `hokusai`, `brushlib-wasm`                                              | check (possible copyleft flag)    | Stage 5 brush option - patterns only until license verified                                            |
+| `storytold/craft-libs` (`atomic`, `settings`, `cms` crates)             | Apache-2.0 OR MIT                 | atomic-write hardening (ported); settings recovery pattern (`move_aside`, `.bak`) adopted as reference |
+| `storytold/vectorcraft` (`brush`, `svg`, `pathops` crates)              | Apache-2.0                        | donor candidates: WASM brush engine (Stage 5), stroke-split erase, richer .ink.svg ops                 |
+| `storytold/figcraft` (`engine`, `geom` crates)                          | Apache-2.0 OR MIT                 | canvas/selection reference (egui model - patterns only)                                                |
+| `rea` (theCosmicCrafter fork of morluto/rea)                            | MIT                               | verification/forensics tool, not embedded                                                              |
 
 _Rule: a donor's license is recorded in this file **before** any of its code
 lands in `packages/`._

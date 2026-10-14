@@ -21,8 +21,8 @@ export function Ribbon(props: {
   sidebarOpen: boolean;
   /** A board is open - ink tools apply to its file nodes. */
   boardOpen?: boolean | undefined;
-  inkMode?: "off" | "draw" | "erase" | undefined;
-  onInkMode?: ((mode: "off" | "draw" | "erase") => void) | undefined;
+  inkMode?: "off" | "draw" | "erase" | "edit" | undefined;
+  onInkMode?: ((mode: "off" | "draw" | "erase" | "edit") => void) | undefined;
   inkColor?: string | undefined;
   onInkColor?: ((color: string) => void) | undefined;
   inkSize?: number | undefined;
@@ -31,6 +31,8 @@ export function Ribbon(props: {
   onRescan?: (() => void) | undefined;
   onNewBoard?: (() => void) | undefined;
   onToggleSidebar?: (() => void) | undefined;
+  /** Zoom-to-fit the whole board (Obsidian: Shift+1). */
+  onZoomFit?: (() => void) | undefined;
 }) {
   const activeColor = props.inkColor ?? INK_COLORS[0];
   const activeSize = props.inkSize ?? INK_SIZES[1];
@@ -94,6 +96,18 @@ export function Ribbon(props: {
               >
                 <Icon name="eraser" size={18} />
               </button>
+              <button
+                type="button"
+                className={
+                  "ribbon-btn" + (props.inkMode === "edit" ? " active" : "")
+                }
+                title="Ink select/move - drag a stroke to reposition it"
+                onClick={() =>
+                  props.onInkMode?.(props.inkMode === "edit" ? "off" : "edit")
+                }
+              >
+                <Icon name="move" size={18} />
+              </button>
               {props.inkMode === "draw" && (
                 <div className="ribbon-ink-palette" aria-label="ink options">
                   {INK_COLORS.map((c) => {
@@ -131,6 +145,15 @@ export function Ribbon(props: {
               )}
               <div className="ribbon-gap" />
             </>
+          )}
+          {props.boardOpen && (
+            <button
+              className="ribbon-btn"
+              title="Zoom to fit all objects (Shift+1)"
+              onClick={props.onZoomFit}
+            >
+              <Icon name="maximize" size={18} />
+            </button>
           )}
           <button
             className={

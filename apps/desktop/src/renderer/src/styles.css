@@ -1230,3 +1230,148 @@ button:hover {
   background: currentColor;
   display: block;
 }
+
+/* ---- The Box holding area (FR-202) ---- */
+
+.box-panel {
+  border-bottom: 1px solid #232936;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.box-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: #8a93a5;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.box-panel-title {
+  flex: 0 0 auto;
+}
+
+.box-panel-count {
+  color: #5c6472;
+}
+
+.box-panel-placeall {
+  margin-left: auto;
+  border: 1px solid #2a3140;
+  border-radius: 4px;
+  background: transparent;
+  color: #8a93a5;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.box-panel-placeall:hover {
+  color: #e8b931;
+  border-color: #e8b931;
+}
+
+.box-panel-empty {
+  color: #5c6472;
+  font-size: 11px;
+  padding: 0 10px;
+  margin: 0 0 4px;
+}
+
+.box-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.box-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #c4cbd8;
+  cursor: grab;
+}
+
+.box-panel-item:hover {
+  background: #1b202c;
+}
+
+.box-panel-item.picked-up {
+  background: rgba(232, 185, 49, 0.14);
+  outline: 1px dashed #e8b931;
+}
+
+.box-panel-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-panel-place {
+  border: none;
+  background: transparent;
+  color: #8a93a5;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.box-panel-item:hover .box-panel-place {
+  visibility: visible;
+}
+
+.box-panel-place:hover {
+  color: #e8b931;
+}
+
+/* ---- pick-up placement overlay ---- */
+
+.pickup-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  cursor: copy;
+  background: rgba(16, 19, 26, 0.15);
+}
+
+.pickup-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1b202c;
+  border: 1px dashed #e8b931;
+  color: #e8b931;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  pointer-events: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.problem {
+  cursor: pointer;
+}
+
+.problem:hover {
+  color: #f0b0b0;
+}
+
+.canvas-viewport.ink-edit .node,
+.canvas-viewport.ink-edit .node * {
+  cursor: default !important;
+}

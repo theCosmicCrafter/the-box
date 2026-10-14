@@ -25,6 +25,8 @@ export type IconName =
   | "type"
   | "pen"
   | "eraser"
+  | "move"
+  | "maximize"
   | "box";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -160,8 +162,26 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="m5 11 9 9" />
     </>
   ),
+  move: (
+    <>
+      <path d="M12 2v20" />
+      <path d="M2 12h20" />
+      <path d="m15 19-3 3-3-3" />
+      <path d="m19 9 3 3-3 3" />
+      <path d="m9 5 3-3 3 3" />
+      <path d="m5 9-3 3 3 3" />
+    </>
+  ),
   box: (
     <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z M3.3 7 12 12l8.7-5 M12 22V12" />
+  ),
+  maximize: (
+    <>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </>
   ),
 };
 

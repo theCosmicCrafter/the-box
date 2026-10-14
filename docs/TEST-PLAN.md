@@ -148,15 +148,20 @@ no coverage yet.
 | FR-111                | `it-watcher-refresh`       | 1     | live          |
 | FR-112                | `it-board-roundtrip`       | 1     | unit+live     |
 | FR-113                | `it-placement-schema`      | 1     | unit+live     |
-| FR-202                | `e2e-box-panel`            | 2     | live-partial¹ |
+| FR-202                | `e2e-box-panel`            | 2     | live          |
 | FR-204                | `it-edge-label`            | 2     | live          |
 | FR-205                | `it-jump-link`             | 2     | live          |
+| FR-206                | `it-audio-node`            | 2     | live          |
+| FR-305                | `it-open-with-prefs`       | 3     | live          |
+| NFR-03                | `perf-pan-500`             | -     | live (60 FPS) |
+| NFR-04                | `perf-cold-5k`             | -     | live (2.2s)   |
 | (all later-stage FRs) | per PRD §5 test-ref        | 2-5   | planned       |
 
-¹ FR-202 ships as an "unplaced" filter toggle over the sidebar file tree
-(placed files hidden while active) rather than a separate Box panel;
-drag-to-place reuses the existing FileTree→canvas path. The dedicated
-holding-area panel with its own drop target is still open.
+FR-202 is now a real holding-area panel (`BoxPanel`): workspace objects not
+on the open board, HTML5 drag via `application/x-box-file`, click-to-pick-up
+(Obsidian pattern - item follows intent until an empty-canvas click drops it,
+Esc cancels), per-row "place at viewport center", deterministic "place all"
+grid via `gridPlaceRect`. The FileTree stays unfiltered alongside it.
 
 Live-verified 2026-10-13 (real CDP input, chaos workspace):
 ink draw writes `untitled-1.md.ink.svg` (`box-format: box.ink/1`,
@@ -189,6 +194,32 @@ New this pass: `invariant-I4..I9` suites landed as Vitest files
 placement-mutating writes), plus `decisions.ts` - a disabled-by-default,
 confidence-gated, proposal-only local decision client (no write plans,
 preserves I-9).
+
+Live-verified 2026-10-13 (third pass, release build on bulk fixture -
+5,202 files, 500 nodes, 200 edges): BoxPanel pick-up-place (`placing
+broken.obj - click to drop, Esc to cancel`, unplaced count 10->9, node
+persisted); viewport culling hides off-viewport nodes (`display:none`)
+while keeping selected/editing/inking ones live; node `color` field
+(JSON Canvas preset "4") renders a tint class and persists to the board;
+ink edit mode selects strokes by proximity tolerance and drags them,
+sidecar rewritten on commit; ink palette choice persists to
+`.box/settings.json`; `fs_open_with` spawned notepad.exe on a workspace
+file after `pick_app`-style validation (relative app paths and non-exe
+targets rejected); Ctrl+Z pops the last ink stroke; clicking a
+`problem` row locates and selects the offending node. Perf: cold open
+2,245 ms for the 5k corpus; pan storm on the release build measured
+median 16.7 ms (~60 FPS, p95 25.8 ms) with 401/500 nodes culled
+mid-pan. Zoom-to-fit drops below the interactive 0.1 floor
+(FIT_MIN_ZOOM 0.02) so huge boards actually fit, and wheel zoom from a
+fit camera eases back through the floor instead of snapping.
+
+Bugs found and fixed this pass: Viewport wheel/pointermove read a stale
+camera between React commits, so trackpad pinch bursts applied one zoom
+per frame - gestures now accumulate through a ref; gen-bulk emitted
+duplicate node ids (`hex(i).slice(0,10)` took the zero padding) and
+unquoted all-digit `box-edge` frontmatter values that js-yaml re-parsed
+as numbers - the app's own serializer was already safe (PLAIN_SCALAR
+rejects leading digits, JSON.stringify fallback quotes).
 
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM

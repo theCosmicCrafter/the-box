@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 import { describe, expect, it } from "vitest";
 import {
+  distToStroke,
   pathToPolygon,
+  pickStroke,
   pointInPolygon,
   strokeToPath,
 } from "../src/canvas/ink.js";
@@ -137,5 +139,34 @@ describe("isBoxUserObject (FR-202, DATA-MODEL §1)", () => {
     expect(isBoxUserObject("assets/photo.png", boundInk)).toBe(true);
     expect(isBoxUserObject("clips/demo.mp4", boundInk)).toBe(true);
     expect(isBoxUserObject("audio/loop.wav", boundInk)).toBe(true);
+  });
+});
+
+describe("distToStroke / pickStroke", () => {
+  // A 10x10 filled square at (0,0)-(10,10).
+  const square = "M 0 0 L 10 0 L 10 10 L 0 10 Z";
+
+  it("returns 0 inside, distance outside, Infinity for foreign paths", () => {
+    expect(distToStroke(5, 5, square)).toBe(0);
+    expect(distToStroke(20, 5, square)).toBe(10);
+    expect(distToStroke(-3, -4, square)).toBe(5);
+    expect(distToStroke(5, 5, "M 0 0 C 1 1 2 2 3 3")).toBe(Infinity);
+  });
+
+  it("picks a stroke within tolerance and refuses beyond it", () => {
+    const strokes = [{ d: square }];
+    expect(pickStroke(strokes, 5, 5)).toBe(0);
+    expect(pickStroke(strokes, 15, 5)).toBe(0); // 5px off, within 12
+    expect(pickStroke(strokes, 30, 5)).toBe(-1); // 20px off
+    expect(pickStroke(strokes, 15, 5, 4)).toBe(-1); // tighter tolerance
+  });
+
+  it("prefers the nearest / topmost stroke", () => {
+    const near = "M 20 0 L 30 0 L 30 10 L 20 10 Z";
+    const strokes = [{ d: square }, { d: near }];
+    // (15,5) is 5 from each; later (topmost) stroke wins the tie.
+    expect(pickStroke(strokes, 15, 5)).toBe(1);
+    expect(pickStroke(strokes, 25, 5)).toBe(1);
+    expect(pickStroke(strokes, 5, 5)).toBe(0);
   });
 });

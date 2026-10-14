@@ -5,57 +5,60 @@
 // on disk (self-write echoes compare identical and are skipped).
 
 import type {
-  CanvasNode,
-  Delta,
-  InkStroke,
-  LinkNote,
-  ProblemItem,
-  Side,
-  WritePlan,
+    CanvasNode,
+    Delta,
+    InkStroke,
+    LinkNote,
+    ProblemItem,
+    Side,
+    WritePlan,
 } from "@box/core";
 import {
-  baseName,
-  BOARD_FORMAT,
-  createEdgePlan,
-  deleteEdgePlan,
-  fileKind,
-  hasScaffoldDirs,
-  isPathRel,
-  linkNoteName,
-  missingScaffoldFiles,
-  newNodeId,
-  parseBoard,
-  parseInkSvg,
-  parseLinkNote,
-  serializeBoard,
-  serializeInkSvg,
-  serializeLinkNote,
+    baseName,
+    BOARD_FORMAT,
+    createEdgePlan,
+    deleteEdgePlan,
+    fileKind,
+    hasScaffoldDirs,
+    isPathRel,
+    linkNoteName,
+    missingScaffoldFiles,
+    newNodeId,
+    parseBoard,
+    parseInkSvg,
+    parseLinkNote,
+    serializeBoard,
+    serializeInkSvg,
+    serializeLinkNote,
 } from "@box/core";
 import type {
-  Camera,
-  InkPoint,
-  MenuItem,
-  MenuSpec,
-  WorkspaceFile,
+    Camera,
+    InkPoint,
+    MenuItem,
+    MenuSpec,
+    WorkspaceFile,
 } from "@box/ui";
 import {
-  BoardView,
-  ContextMenu,
-  DEFAULT_CAMERA,
-  FileTree,
-  Icon,
-  ImageInspector,
-  isBoxUserObject,
-  NotePanel,
-  pathToPolygon,
-  pointInPolygon,
-  Ribbon,
-  screenToWorld,
-  strokeToPath,
-  useBoxStore,
+    BoardView,
+    BoxPanel,
+    ContextMenu,
+    DEFAULT_CAMERA,
+    FileTree,
+    gridPlaceRect,
+    Icon,
+    ImageInspector,
+    NotePanel,
+    pathToPolygon,
+    pointInPolygon,
+    Ribbon,
+    screenToWorld,
+    strokeToPath,
+    translatePath,
+    useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
+import { loadSettings, makeSaver } from "./settings.js";
 
 interface WorkspaceChanged {
   files: WorkspaceFile[];
@@ -95,6 +98,11 @@ declare global {
       ) => Promise<{ ok: boolean; error?: string }>;
       openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
       revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+      openWith: (
+        rel: string,
+        app: string,
+      ) => Promise<{ ok: boolean; error?: string }>;
+      pickApp: () => Promise<string | null>;
       importFiles: (paths: string[]) => Promise<{
         ok: boolean;
         imported: { rel: string; src: string }[];
@@ -192,11 +200,23 @@ export function App() {
   const [editingNode, setEditingNode] = useState<string | null>(null);
   // Image inspector (PureRef/Eagle): the file path currently inspected.
   const [inspectPath, setInspectPath] = useState<string | null>(null);
-  // Ink: "off" | "draw" | "erase" board mode + parsed strokes per node id.
-  const [inkMode, setInkMode] = useState<"off" | "draw" | "erase">("off");
+  // Ink: "off" | "draw" | "erase" | "edit" board mode + parsed strokes.
+  const [inkMode, setInkMode] = useState<"off" | "draw" | "erase" | "edit">(
+    "off",
+  );
   const [inkColor, setInkColor] = useState<string>("#e8b931");
   const [inkSize, setInkSize] = useState<number>(10);
   const [inkMap, setInkMap] = useState<Map<string, InkStroke[]>>(new Map());
+  // Last node a stroke was written to - ink undo's target.
+  const lastInkNode = useRef<string | null>(null);
+  // FR-305: ext -> picked app path, persisted in .box/settings.json.
+  const [openWithMap, setOpenWithMap] = useState<Record<string, string>>({});
+  const savePrefs = useRef<ReturnType<typeof makeSaver> | null>(null);
+  // FR-202 pick-up mode: a Box row's file follows the cursor until the
+  // user clicks the canvas to place it (or Esc cancels).
+  const [pickUp, setPickUp] = useState<string | null>(null);
+  // Shift+1 zoom-to-fit request.
+  const [fitAll, setFitAll] = useState<{ nonce: number } | null>(null);
   // FR-104: text-kind file node being edited in place.
   const [fileEdit, setFileEdit] = useState<{
     nodeId: string;
@@ -209,8 +229,6 @@ export function App() {
     id: string;
     nonce: number;
   } | null>(null);
-  // FR-202: sidebar "unplaced only" filter.
-  const [unplacedOnly, setUnplacedOnly] = useState(false);
   const newBoardInput = useRef<HTMLInputElement>(null);
   // Canvas context menu + the camera/viewport handles OS file drops need
   // to convert window coords into world space.
@@ -243,6 +261,7 @@ export function App() {
     if (r) {
       setWorkspace(r.root, r.files);
       const w = await window.box.watchWorkspace(r.root);
+      await loadPrefs(r.root);
       await openFirstBoard(r.files, r.root);
       if (!w.ok)
         useBoxStore
@@ -366,6 +385,7 @@ export function App() {
       const files = await window.box!.rescan(last);
       await window.box!.watchWorkspace(last);
       useBoxStore.getState().setWorkspace(last, files);
+      await loadPrefs(last);
       await openFirstBoard(files, last);
     })();
   }, []);
@@ -475,7 +495,98 @@ export function App() {
     }
     if (n["box-ink"] !== rel) updateNode(nodeId, { "box-ink": rel });
     setInkMap(new Map(inkMap).set(nodeId, strokes));
+    lastInkNode.current = nodeId;
     await saveBoard();
+  };
+
+  // FR-305/307: .box/settings.json is non-truth prefs - load on workspace
+  // open, debounce-save on change. Missing/corrupt file degrades to
+  // defaults silently (settings.ts contract).
+  const loadPrefs = async (root: string) => {
+    savePrefs.current = makeSaver(root);
+    const s = await loadSettings(root);
+    if (typeof s.ink?.color === "string") setInkColor(s.ink.color);
+    if (typeof s.ink?.size === "number") setInkSize(s.ink.size);
+    setOpenWithMap(s.openWith ?? {});
+  };
+
+  const setInkColorPref = (c: string) => {
+    setInkColor(c);
+    savePrefs.current?.({ ink: { color: c, size: inkSize } });
+  };
+  const setInkSizePref = (s: number) => {
+    setInkSize(s);
+    savePrefs.current?.({ ink: { color: inkColor, size: s } });
+  };
+
+  // FR-305: preferred app per extension wins over the OS default.
+  const openExternalSmart = async (rel: string) => {
+    if (!window.box) return;
+    const ext = `.${(rel.split(".").pop() ?? "").toLowerCase()}`;
+    const app = openWithMap[ext];
+    if (app !== undefined) {
+      const r = await window.box.openWith(rel, app);
+      if (r.ok) return;
+      // Recorded app vanished/failed - drop the pref, fall to default.
+      const next = { ...openWithMap };
+      delete next[ext];
+      setOpenWithMap(next);
+      savePrefs.current?.({ openWith: next });
+    }
+    const r = await window.box.openExternal(rel);
+    if (!r.ok)
+      useBoxStore.getState().setProblems([`open failed: ${rel} - ${r.error}`]);
+  };
+
+  // Ink edit mode (FR-307 partial): drag translates a stroke's polygon.
+  // Foreign (non-polygon) paths refuse the move rather than corrupting.
+  const inkStrokeMove = async (
+    nodeId: string,
+    idx: number,
+    dx: number,
+    dy: number,
+  ) => {
+    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
+    const strokes = inkMap.get(nodeId);
+    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
+    const rel = n["box-ink"];
+    if (typeof rel !== "string" || !strokes || idx < 0 || idx >= strokes.length)
+      return;
+    const nd = translatePath(strokes[idx]!.d, dx, dy);
+    if (nd === null) return;
+    const next = strokes.map((s, i) => (i === idx ? { ...s, d: nd } : s));
+    const r = await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeInkSvg({ strokes: next }),
+    );
+    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, next));
+  };
+
+  // Ink undo: pop the last stroke off a node's sidecar; empty sidecar is
+  // trashed recoverably, same as the erase-all path.
+  const inkUndo = async (nodeId: string) => {
+    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
+    const strokes = inkMap.get(nodeId);
+    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
+    const rel = n["box-ink"];
+    if (typeof rel !== "string" || !strokes || strokes.length === 0) return;
+    const kept = strokes.slice(0, -1);
+    if (kept.length === 0) {
+      await window.box.trashFile(workspaceRoot, rel);
+      updateNode(nodeId, { "box-ink": undefined });
+      const m = new Map(inkMap);
+      m.delete(nodeId);
+      setInkMap(m);
+      await saveBoard();
+      return;
+    }
+    const r = await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeInkSvg({ strokes: kept }),
+    );
+    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, kept));
   };
 
   // FR-106: erase removes whole strokes hit by the pointer (a small ring
@@ -555,6 +666,90 @@ export function App() {
   // FR-205: NotePanel from/to jump -> board camera centers the endpoint.
   const jumpToNode = (id: string) => setFocusNode({ id, nonce: Date.now() });
 
+  // Problem rows are `kind: path - detail`. Clicking locates the object:
+  // first look for any board node whose file/sidecar/id appears anywhere in
+  // the message (detail text carries the interesting path, e.g. "file
+  // missing: x.txt"); fall back to the headline path. A board path opens
+  // that board. Non-path problems no-op.
+  const locateProblem = (p: string) => {
+    const b = useBoxStore.getState().board;
+    if (b) {
+      const hit = b.nodes.find((n) => {
+        if (n.type === "file")
+          return (
+            p.includes(n.file) ||
+            (typeof n["box-ink"] === "string" && p.includes(n["box-ink"]))
+          );
+        return p.includes(n.id);
+      });
+      if (hit) {
+        jumpToNode(hit.id);
+        return;
+      }
+    }
+    const m = /^[^:]+:\s([^-]+?)(?:\s-\s|$)/.exec(p);
+    const path = m?.[1]?.trim();
+    if (path?.endsWith(".box.canvas")) void loadBoardFile(path);
+  };
+
+  // Global keys: Shift+1 zoom-to-fit (Obsidian), Esc cancels pick-up,
+  // Ctrl/Cmd+Z pops the last ink stroke while an ink mode is active.
+  // Text inputs are never hijacked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (e.key === "Escape" && pickUp !== null) {
+        setPickUp(null);
+        return;
+      }
+      if (e.key === "!" && e.shiftKey && board !== null) {
+        setFitAll({ nonce: Date.now() });
+        return;
+      }
+      if (
+        (e.key === "z" || e.key === "Z") &&
+        (e.ctrlKey || e.metaKey) &&
+        inkMode !== "off" &&
+        lastInkNode.current !== null
+      ) {
+        e.preventDefault();
+        void inkUndo(lastInkNode.current);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pickUp, board, inkMode, inkMap, workspaceRoot]);
+
+  // FR-202: place a Box file at the current viewport center (the "+"
+  // affordance) or at a dropped world point (pick-up click).
+  const placeAtViewCenter = async (path: string) => {
+    const vp = vpElRef.current;
+    if (!vp) return;
+    const r = vp.getBoundingClientRect();
+    const w = screenToWorld(camRef.current, r.width / 2, r.height / 2);
+    await placeFiles([path], w.x - 130, w.y - 90);
+  };
+  const placeAllGrid = async (paths: string[]) => {
+    const nodes = useBoxStore.getState().board?.nodes ?? [];
+    const next = [...nodes];
+    for (let i = 0; i < paths.length; i++) {
+      const g = gridPlaceRect(next, i);
+      const node: CanvasNode = {
+        id: newNodeId(),
+        type: "file",
+        x: g.x,
+        y: g.y,
+        width: 260,
+        height: 180,
+        file: paths[i]!,
+      };
+      addNode(node);
+      next.push(node);
+    }
+    await saveBoard();
+  };
+
   // FR-202: the sidebar "unplaced" filter needs the set of files already
   // on the open board.
   const placedPaths = useMemo(
@@ -574,14 +769,6 @@ export function App() {
           .map((n) => (n.type === "file" ? (n["box-ink"] as string) : "")),
       ),
     [board?.nodes],
-  );
-  const unplacedCount = useMemo(
-    () =>
-      files.filter(
-        (f) =>
-          isBoxUserObject(f.path, boundInkPaths) && !placedPaths.has(f.path),
-      ).length,
-    [files, boundInkPaths, placedPaths],
   );
 
   const saveBoard = async () => {
@@ -933,20 +1120,77 @@ export function App() {
     const items: MenuItem[] = [];
     if (node.type === "file") {
       const file = node.file;
+      const ext = `.${(file.split(".").pop() ?? "").toLowerCase()}`;
       items.push(
         {
           label: "Open externally",
           icon: "external",
           hint: "dbl-click",
-          onPick: () => void window.box?.openExternal(file),
+          onPick: () => void openExternalSmart(file),
         },
         {
-          label: "Reveal in Explorer",
-          icon: "folderOpen",
-          hint: "alt+dbl",
-          onPick: () => void window.box?.revealFile(file),
+          label: "Open with…",
+          icon: "external",
+          onPick: () =>
+            void (async () => {
+              const app = await window.box?.pickApp();
+              if (!app) return;
+              const r = await window.box!.openWith(file, app);
+              if (r.ok) {
+                const next = { ...openWithMap, [ext]: app };
+                setOpenWithMap(next);
+                savePrefs.current?.({ openWith: next });
+              } else {
+                useBoxStore
+                  .getState()
+                  .setProblems([`open-with failed: ${r.error}`]);
+              }
+            })(),
         },
       );
+      if (openWithMap[ext] !== undefined) {
+        items.push({
+          label: `Reset default app for ${ext}`,
+          icon: "refresh",
+          onPick: () => {
+            const next = { ...openWithMap };
+            delete next[ext];
+            setOpenWithMap(next);
+            savePrefs.current?.({ openWith: next });
+          },
+        });
+      }
+      items.push({
+        label: "Reveal in Explorer",
+        icon: "folderOpen",
+        hint: "alt+dbl",
+        onPick: () => void window.box?.revealFile(file),
+      });
+      // JSON Canvas `color` is spec-native ("1"-"6" presets + hex) - a
+      // chained menu keeps the flat ContextMenu component untouched.
+      items.push({
+        label: "Set color…",
+        icon: "pen",
+        onPick: () => {
+          const swatch = (v: string | null, label: string): MenuItem => ({
+            label,
+            onPick: () => {
+              updateNode(node.id, { color: v ?? undefined });
+              void saveBoard();
+            },
+          });
+          const items2: MenuItem[] = [
+            swatch(null, "Default"),
+            swatch("1", "Red"),
+            swatch("2", "Orange"),
+            swatch("3", "Yellow"),
+            swatch("4", "Green"),
+            swatch("5", "Cyan"),
+            swatch("6", "Purple"),
+          ];
+          setMenu({ x: cx, y: cy, items: items2 });
+        },
+      });
       if (fileKind(file) === "image") {
         items.push({
           label: "Inspect",
@@ -1150,8 +1394,12 @@ export function App() {
               fileEdit ? { nodeId: fileEdit.nodeId, text: fileEdit.text } : null
             }
             focusNode={focusNode}
+            fitAllRequest={fitAll ?? undefined}
             onInkStroke={(id, pts) => void inkStroke(id, pts)}
             onInkErase={(id, x, y) => void inkErase(id, x, y)}
+            onInkStrokeMove={(id, i, dx, dy) =>
+              void inkStrokeMove(id, i, dx, dy)
+            }
             onEditFile={(n) => void startFileEdit(n)}
             onFileCommit={(id, t) => void commitFileEdit(id, t)}
             onFileEditCancel={() => setFileEdit(null)}
@@ -1177,14 +1425,7 @@ export function App() {
               const n = board.nodes.find((x) => x.id === id);
               if (n?.type === "file") setInspectPath(n.file);
             }}
-            onOpenFile={(rel) => {
-              void window.box?.openExternal(rel).then((r) => {
-                if (!r.ok)
-                  useBoxStore
-                    .getState()
-                    .setProblems([`open failed: ${rel} - ${r.error}`]);
-              });
-            }}
+            onOpenFile={(rel) => void openExternalSmart(rel)}
             onRevealFile={(rel) => void window.box?.revealFile(rel)}
           />
           {inspectPath !== null && (
@@ -1229,9 +1470,10 @@ export function App() {
         inkMode={inkMode}
         onInkMode={setInkMode}
         inkColor={inkColor}
-        onInkColor={setInkColor}
+        onInkColor={setInkColorPref}
         inkSize={inkSize}
-        onInkSize={setInkSize}
+        onInkSize={setInkSizePref}
+        onZoomFit={() => setFitAll({ nonce: Date.now() })}
       />
       {sidebarOpen && (
         <aside className="sidebar">
@@ -1260,22 +1502,19 @@ export function App() {
                   <Icon name="filePlus" size={14} />
                 </button>
               </div>
-              <button
-                className={
-                  unplacedOnly ? "sidebar-filter active" : "sidebar-filter"
-                }
-                onClick={() => setUnplacedOnly((v) => !v)}
-                title="Show only files not placed on the open board"
-              >
-                <Icon name="box" size={14} /> unplaced ({unplacedCount})
-              </button>
+              <BoxPanel
+                files={files}
+                placedPaths={placedPaths}
+                boundInkPaths={boundInkPaths}
+                pickedUp={pickUp}
+                onPickUp={(p) => setPickUp((cur) => (cur === p ? null : p))}
+                onPlace={(p) => void placeAtViewCenter(p)}
+                onPlaceAll={(paths) => void placeAllGrid(paths)}
+              />
               <FileTree
                 files={files}
                 activePath={boardPath ?? undefined}
                 onOpen={(p) => void loadBoardFile(p)}
-                unplacedOnly={unplacedOnly}
-                placedPaths={placedPaths}
-                boundInkPaths={boundInkPaths}
               />
               {scaffoldOffered && (
                 <div className="sidebar-scaffold">
@@ -1293,10 +1532,38 @@ export function App() {
       )}
       <div className="wb-content">
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+        {pickUp !== null && (
+          <div
+            className="pickup-overlay"
+            title="Click to place - Esc cancels"
+            onClick={(e) => {
+              const vp = vpElRef.current;
+              if (!vp || pickUp === null) return;
+              const r = vp.getBoundingClientRect();
+              const w = screenToWorld(
+                camRef.current,
+                e.clientX - r.left,
+                e.clientY - r.top,
+              );
+              const p = pickUp;
+              setPickUp(null);
+              void placeFiles([p], w.x - 130, w.y - 90);
+            }}
+          >
+            <span className="pickup-hint">
+              placing {pickUp} - click to drop, Esc to cancel
+            </span>
+          </div>
+        )}
         {problems.length > 0 && (
           <div className="problems">
             {problems.map((p, i) => (
-              <div key={i} className="problem">
+              <div
+                key={i}
+                className="problem"
+                title="Click to locate on the board"
+                onClick={() => locateProblem(p)}
+              >
                 {p}
               </div>
             ))}

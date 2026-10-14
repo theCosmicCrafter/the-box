@@ -149,17 +149,59 @@ fn scan_dir(root: &Path, rel: &str, out: &mut Vec<WsFile>) {
 }
 
 // ---- atomic write / trash / tombstone ledger ----
+// Ported from storytold/craft-libs crates/atomic (Apache-2.0 OR MIT):
+// fsync the staged file BEFORE the rename (sync_file < rename ordering),
+// then retry the rename on Windows while AV/indexer/backup tools hold a
+// transient share lock (ERROR_SHARING_VIOLATION/ERROR_LOCK_VIOLATION,
+// PermissionDenied) with 10ms doubling backoff capped at 200ms.
+
+const MAX_RETRY_DELAY_MS: u64 = 200;
+
+fn is_transient_lock(e: &std::io::Error) -> bool {
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    const ERROR_LOCK_VIOLATION: i32 = 33;
+    e.kind() == std::io::ErrorKind::PermissionDenied
+        || (cfg!(windows)
+            && matches!(
+                e.raw_os_error(),
+                Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+            ))
+}
+
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    // Windows-only backoff; other platforms take the single-attempt path.
+    let mut delay_ms: u64 = if cfg!(windows) { 10 } else { 0 };
+    let mut left: u32 = if cfg!(windows) { 7 } else { 0 };
+    loop {
+        match fs::rename(from, to) {
+            Err(e) if is_transient_lock(&e) && left > 0 => {
+                left -= 1;
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                delay_ms = delay_ms.saturating_mul(2).min(MAX_RETRY_DELAY_MS);
+            }
+            r => return r,
+        }
+    }
+}
 
 fn write_atomic(root: &Path, rel: &str, content: &str) -> Result<(), String> {
     let abs = resolve_inside(root, rel).ok_or("path escapes workspace")?;
     let tmp_dir = root.join(".box").join("tmp");
     fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
     let tmp = tmp_dir.join(format!("w-{}.tmp", uuid()));
-    fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    {
+        let mut f = fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut f, content.as_bytes()).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
     if let Some(parent) = abs.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::rename(&tmp, &abs).map_err(|e| e.to_string())
+    if let Err(e) = rename_with_retry(&tmp, &abs) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 fn uuid() -> String {
@@ -452,6 +494,44 @@ fn reveal_file(state: State<'_, AppState>, rel: String) -> CmdResult {
 #[tauri::command]
 fn platform() -> &'static str {
     std::env::consts::OS
+}
+
+// FR-305 "Open with": the user picks an app per extension; the chosen exe
+// gets the workspace file as its argv[1] (per Old New Thing: programs that
+// open files accept a quoted path arg - ShellExecute's open verb does the
+// same resolution). The app path is user-picked and legitimately outside
+// the workspace root - only `rel` is containment-checked.
+fn valid_open_with_app(app: &str) -> bool {
+    let p = Path::new(app);
+    p.is_absolute() && p.is_file()
+}
+
+#[tauri::command]
+fn fs_open_with(state: State<'_, AppState>, rel: String, app: String) -> CmdResult {
+    let root = match state.workspace_root.lock().unwrap().clone() {
+        Some(r) => r,
+        None => return cmd_err("no workspace"),
+    };
+    if !valid_open_with_app(&app) {
+        return cmd_err("open-with app must be an existing absolute path");
+    }
+    match resolve_inside(&root, &rel) {
+        None => cmd_err(format!("path escapes workspace: {rel}")),
+        Some(abs) => match std::process::Command::new(app).arg(&abs).spawn() {
+            Ok(_) => cmd_ok(),
+            Err(e) => cmd_err(e),
+        },
+    }
+}
+
+#[tauri::command]
+fn pick_app() -> Option<String> {
+    let mut d = rfd::FileDialog::new().set_title("Choose an application");
+    if cfg!(windows) {
+        d = d.add_filter("Applications", &["exe"]);
+    }
+    d.pick_file()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
 // ---- import / create / pick (drag-drop + context-menu verbs) ----
@@ -880,6 +960,8 @@ pub fn run() {
             fs_append_tombstone,
             open_external,
             reveal_file,
+            fs_open_with,
+            pick_app,
             platform,
             import_files,
             new_text_file,

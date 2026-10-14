@@ -365,3 +365,25 @@ fn create_new_never_overwrites() {
     let p4 = create_new(&ws, "", "..|x", ".m?d", b"z").unwrap();
     assert!(is_path_rel(&p4), "created path must be PathRel: {p4}");
 }
+
+#[test]
+fn open_with_app_must_be_absolute_existing_file() {
+    // The app path is user-picked and lives outside the workspace - the
+    // contract is absolute + existing file, never workspace containment.
+    assert!(!valid_open_with_app(""));
+    assert!(!valid_open_with_app("relative/app.exe"));
+    assert!(!valid_open_with_app(
+        "C:/definitely/not/a-real-app-12345.exe"
+    ));
+    assert!(!valid_open_with_app("..\\evil.exe"));
+    // A real absolute file passes (use the temp dir we control).
+    let ws = tmpdir("openwith");
+    let app = ws.join("fake-editor.exe");
+    fs::write(&app, b"MZ").unwrap();
+    let app_str = app.to_string_lossy().replace('\\', "/");
+    assert!(valid_open_with_app(&app_str));
+    // A directory is not an app.
+    assert!(!valid_open_with_app(
+        &ws.to_string_lossy().replace('\\', "/")
+    ));
+}

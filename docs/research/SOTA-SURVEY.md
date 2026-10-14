@@ -50,3 +50,43 @@ signal. `compat-flag` means the license constrains reuse; flag rows get
 - tldraw license: `tldraw.dev/community/license`, `tldraw.dev/blog/tldraw-sdk-4-0`
 - Contributor Covenant 3.0: `contributor-covenant.org/version/3/0/` (released 2025-07-28)
 - npm: `electron@44` latest 44.7.0, `chokidar@5.0.0`, `perfect-freehand@1.2.3` (MIT)
+
+## storytold/ArtCraft survey (added 2026-10-20)
+
+`github.com/orgs/storytold` is the ArtCraft org: clean-room Rust reimplementations
+of creative apps (61 repos, all Apache-2.0 or Apache/MIT dual). Cloned to
+`reference/storytold/` for donor mining: `craft-libs` (3.5 MB), `figcraft`
+(28 MB), `vectorcraft` (58 MB).
+
+### Adopted this pass
+
+- **`craft-libs/crates/atomic`** — crash-safe file replacement: fsync staged
+  file before rename, Windows rename retry (7 attempts, 10 ms doubling,
+  200 ms cap) on sharing/lock violations and `PermissionDenied`, tmp cleanup
+  on failure. Ported into `write_atomic` (THIRD_PARTY_NOTICES row). Direct
+  fix for the classic Windows AV/indexer rename flake - ours was write+rename
+  with no fsync and no retry.
+- **`craft-libs/crates/settings`** — recovery patterns worth adopting for
+  `.box/settings.json` corruption: `move_aside` renames a damaged file to
+  `name.broken-<unix-ts>.<ext>` (never destroys data), `write_backup` keeps
+  `.bak` of last-good. Reference only for now; renderer-side settings module
+  already degrades to defaults.
+- **`vectorcraft/crates/brush`** — brush definitions + stroke-to-fill geometry
+  (`stroke_pieces` single source, renderer caches pieces). Donor for the
+  parked WASM brush engine (ROADMAP Stage 5).
+- **`vectorcraft/crates/pathops`** — boolean path ops (`boolean.rs`,
+  `offset.rs`, `planar.rs`). Donor for stroke-splitting erase (tldraw-style
+  partial erase) if FR-106 ever graduates from whole-stroke removal.
+- **`vectorcraft/crates/svg`** — full SVG import/export. Donor if `.ink.svg`
+  ever needs richer path types beyond our polygon subset.
+- **`figcraft`** — full design-tool document engine (625 .rs files, egui
+  renderer). Different render model from our DOM canvas; patterns-only
+  reference for selection/annotation depth.
+
+### Not adopted (evaluated, wrong fit)
+
+- figcraft `geom/transform.rs` — kurbo `Affine`-based; our `camera.ts`
+  (translate+zoom) is simpler and correct for our model.
+- `soundcraft`/`filmcraft`/`pdfcraft`/`wordcraft` — full Rust media engines;
+  our previews are HTML5/WebView2-native. Revisit only if WKWebView codec
+  gaps or a PDF node type justify a renderer dependency.
