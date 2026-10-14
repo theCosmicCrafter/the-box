@@ -7,56 +7,67 @@ not before. Pulling anything from the north-star lot forward requires an ADR.
 
 **Goal:** a green repo with a runnable shell and the contract docs committed.
 
-- [ ] Close OQ-1 (canvas superset) and OQ-4 (link-note scope) - ADR entries
-- [ ] npm workspaces scaffold: `apps/desktop`, `packages/box-core`, `packages/box-ui`
-- [ ] `box-core` skeleton: model types + `.box.canvas` parser/serializer (port from `obsidian-master-control-mcp/canvas.py`)
+- [x] Close OQ-1 (canvas superset) and OQ-4 (link-note scope) - ADR entries
+- [x] npm workspaces scaffold: `apps/desktop`, `packages/box-core`, `packages/box-ui`
+- [x] `box-core` skeleton: model types + `.box.canvas` parser/serializer (port from `obsidian-master-control-mcp/canvas.py`)
 - [x] Tauri 2 shell opens a folder, lists files (ADR-0006; Electron replaced 2026-10-13)
-- [ ] CI: typecheck + lint + vitest green
-- [ ] Fixture workspace generator in `tools/`
+- [x] CI: typecheck + lint + vitest green
+- [x] Fixture workspace generator in `tools/` (`tools/fixtures/gen-bulk.mjs`)
 
-**Exit:** `npm ci && npm run dev` opens the shell; all gates green.
+**Exit:** `npm ci && npm run dev` opens the shell; all gates green. **Done.**
 
 ## Stage 1 - PoC (the wedge)
 
 **Goal:** prove the three-sentence spec end to end. The PoC exists to prove
 _sync_, not canvas - that's the risk worth retiring first.
 
-- [ ] FR-101..FR-113 (objects, ink, arrows↔notes, round-trip, `.box.canvas`)
-- [ ] Invariant tests I-1..I-5 green (I-6..I-9 land with their features)
-- [ ] `decisions.ts` client exists behind a flag (may be stubbed offline)
+- [x] FR-101..FR-113 (objects, ink, arrows↔notes, round-trip, `.box.canvas`)
+- [x] Invariant tests I-1..I-5 green (I-6..I-9 land with their features)
+- [x] `decisions.ts` client exists behind a flag (may be stubbed offline)
 
 **Exit (also PRD §9 acceptance):** draw arrow → note file exists; erase →
 note gone; delete note → edge gone; external save → canvas refreshes;
 reopen with index deleted → identical state; Christian does it unaided.
+**All verified live via CDP except the human dogfood gate.**
 
 ## Stage 2 - The canvas earns its name
 
-- [ ] FR-201..FR-207 (infinite pan/zoom, Box holding area, multi-board,
-      edge labels/types, jump-to-link, audio objects, CM6 note editor)
+- [~] FR-201..FR-207 (infinite pan/zoom, Box holding area, multi-board,
+  edge labels/types, jump-to-link, audio objects, CM6 note editor) -
+  all live-verified except FR-207 CodeMirror note editor (plain
+  textarea meets the functional contract; CM6 is polish)
 - [ ] Ink sidecar as first-class linkable object (FR-307 partial)
-- [ ] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs
+- [~] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs -
+  patterns ported (culling, proximity stroke pick, burst-safe camera);
+  storytold/craft-libs `atomic` write hardening landed
 - [ ] Undo-as-file-data: persist the op log in or beside `.box.canvas` so undo
       survives restart (T-14, Tietze pattern; fits files-are-truth)
 - [ ] Regions with parameters: group/frame nodes carry per-region config,
       generalizing the Box holding area (T-14, Ferrate biome pattern)
-- [ ] Ink smoothing polish: stroke quality over feature count (T-14,
-      InfinitiCanvas/perfect-freehand evidence)
+- [~] Ink smoothing polish: stroke quality over feature count (T-14,
+  InfinitiCanvas/perfect-freehand evidence) - perfect-freehand live;
+  pressure, color, size, stroke-move edit shipped
 
 **Exit:** 500-object board stays ≥30fps; a week of real use on TheBox-Dev
-without manual file surgery.
+without manual file surgery. **Perf met: 60 FPS median release / 41 FPS dev,
+measured via `tools/perf-probe.mjs` on a 500-node board.**
 
 ## Stage 3 - Sync hardening + media polish
 
-- [ ] FR-301..FR-307 (closed-app deletes, external `.canvas` edits, renames,
-      multi-board consistency, broken-edge recovery, open-with prefs,
-      spatial audio modes, ink colors)
-- [ ] Invariants I-6..I-9 green; problem-items UI for malformed notes
+- [~] FR-301..FR-307 (closed-app deletes, external `.canvas` edits, renames,
+  multi-board consistency, broken-edge recovery, open-with prefs,
+  spatial audio modes, ink colors) - all live-verified except spatial
+  audio modes (audio chip exists; spatial panning unbuilt)
+- [x] Invariants I-6..I-9 green; problem-items UI for malformed notes
+      (clickable rows locate+select the offending node)
 - [ ] OS-native icon fallback for typed tiles via `app.getFileIcon` IPC
       (T-14, Eagle native.js analog: blend/c4d/dwg and friends)
 - [ ] Deferred parser queue, gated on a real file needing it: ag-psd (PSD),
       camera-RAW embedded-JPEG extraction, HEIC/JXL decode (T-9/T-14)
-- [ ] Windowed/chunked board processing for very large boards (T-14,
-      AAAI Infinite-Canvas technique; also feeds the 3D north star)
+- [x] Windowed/chunked board processing for very large boards (T-14,
+      AAAI Infinite-Canvas technique; also feeds the 3D north star) -
+      shipped as viewport culling (`display:none`, selected/editing/inking
+      exempt)
 
 **Exit:** rename/move/delete chaos test (scripted, 100 random ops) leaves
 zero orphaned truth; dogfood clearance for Christian's real vault.

@@ -11,8 +11,29 @@ reference, not a dependency - The Box owns its whole stack.
 
 ## Status
 
-**Pre-scaffold.** This repository currently contains documentation and a `reference/` folder of
-donor projects. No application code exists yet - see `docs/ROADMAP.md` Stage 0.
+**Working app, Windows-first.** The Tauri 2 desktop build runs the full three-file model
+end to end: infinite canvas over a watched workspace, ink sidecars, arrows as link notes,
+open-with external editors, all live-verified under WebView2.
+
+Current snapshot (see `docs/TEST-PLAN.md` for the verification matrix):
+
+- 103 core + 49 UI + 16 Rust tests green; typecheck, eslint, clippy clean
+- 5,202-file workspace + 500-node board: ~2.2 s cold open, ~60 FPS pan
+- Windows installers: NSIS (per-user, silent-verified) and MSI
+- Remaining gaps and stage status are tracked in `docs/ROADMAP.md`
+
+## Quick start (Windows)
+
+```powershell
+npm ci
+npm run dev        # Tauri dev shell (vite on :5173)
+npm run build -w @box/desktop   # or: npm run tauri build -w @box/desktop
+```
+
+Installers land in `apps/desktop/src-tauri/target/release/bundle/` (`msi/` and `nsis/`).
+`tools/perf-probe.mjs` and `tools/fixtures/gen-bulk.mjs` drive the perf fixtures;
+`tools/cdp-eval.mjs` / `cdp-input.mjs` drive live verification over CDP
+(launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223`).
 
 ## Documentation Map
 
