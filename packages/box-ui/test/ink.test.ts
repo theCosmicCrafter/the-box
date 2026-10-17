@@ -109,36 +109,34 @@ describe("ink palette constants (FR-307)", () => {
   });
 });
 
-describe("isBoxUserObject (FR-202, DATA-MODEL §1)", () => {
-  const boundInk = new Set(["notes/idea.md.ink.svg", "photo.png.ink.svg"]);
-
+describe("isBoxUserObject (FR-202/FR-307, DATA-MODEL §1)", () => {
   it("excludes app-managed .box/ contents", () => {
-    expect(isBoxUserObject(".box", boundInk)).toBe(false);
-    expect(isBoxUserObject(".box/main.box.canvas", boundInk)).toBe(false);
-    expect(isBoxUserObject(".box/tombstones.json", boundInk)).toBe(false);
+    expect(isBoxUserObject(".box")).toBe(false);
+    expect(isBoxUserObject(".box/main.box.canvas")).toBe(false);
+    expect(isBoxUserObject(".box/tombstones.json")).toBe(false);
   });
 
   it("excludes root-level link-<16hex>.md relationship notes", () => {
-    expect(isBoxUserObject("link-0123456789abcdef.md", boundInk)).toBe(false);
+    expect(isBoxUserObject("link-0123456789abcdef.md")).toBe(false);
     // Uppercase or non-16-hex or nested markdown files are user objects.
-    expect(isBoxUserObject("link-short.md", boundInk)).toBe(true);
-    expect(isBoxUserObject("notes/link-0123456789abcdef.md", boundInk)).toBe(
-      true,
-    );
+    expect(isBoxUserObject("link-short.md")).toBe(true);
+    expect(isBoxUserObject("notes/link-0123456789abcdef.md")).toBe(true);
   });
 
-  it("excludes bound .ink.svg sidecars but keeps standalone .ink.svg files", () => {
-    expect(isBoxUserObject("notes/idea.md.ink.svg", boundInk)).toBe(false);
-    expect(isBoxUserObject("photo.png.ink.svg", boundInk)).toBe(false);
-    expect(isBoxUserObject("standalone.ink.svg", boundInk)).toBe(true);
+  it("includes all .ink.svg sidecars - bound or standalone (FR-307)", () => {
+    // FR-307 "ink as object": a sidecar bound to a file node is still a
+    // real workspace file - placeable and linkable in its own right.
+    expect(isBoxUserObject("notes/idea.md.ink.svg")).toBe(true);
+    expect(isBoxUserObject("photo.png.ink.svg")).toBe(true);
+    expect(isBoxUserObject("standalone.ink.svg")).toBe(true);
   });
 
   it("includes user markdown, images, audio, and video files", () => {
-    expect(isBoxUserObject("readme.md", boundInk)).toBe(true);
-    expect(isBoxUserObject("notes/idea.md", boundInk)).toBe(true);
-    expect(isBoxUserObject("assets/photo.png", boundInk)).toBe(true);
-    expect(isBoxUserObject("clips/demo.mp4", boundInk)).toBe(true);
-    expect(isBoxUserObject("audio/loop.wav", boundInk)).toBe(true);
+    expect(isBoxUserObject("readme.md")).toBe(true);
+    expect(isBoxUserObject("notes/idea.md")).toBe(true);
+    expect(isBoxUserObject("assets/photo.png")).toBe(true);
+    expect(isBoxUserObject("clips/demo.mp4")).toBe(true);
+    expect(isBoxUserObject("audio/loop.wav")).toBe(true);
   });
 });
 

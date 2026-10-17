@@ -1328,6 +1328,17 @@ button:hover {
   outline: 1px dashed #e8b931;
 }
 
+.box-panel-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(232, 185, 49, 0.15);
+  color: #e8b931;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .box-panel-name {
   flex: 1;
   overflow: hidden;

@@ -9,13 +9,14 @@
 //   - "place all" lays every unplaced file out on a deterministic grid
 // Files stay truth in all paths: placing only writes a board node.
 
-import { Icon } from "./icons.js";
 import { fileIcon, isBoxUserObject } from "./FileTree.js";
+import { Icon } from "./icons.js";
 import type { WorkspaceFile } from "./store.js";
 
 export function BoxPanel(props: {
   files: WorkspaceFile[];
   placedPaths: Set<string>;
+  /** Ink sidecars currently bound to a file node - shown with a badge. */
   boundInkPaths?: Set<string> | undefined;
   /** File the user picked up - highlighted; click empty canvas to drop. */
   pickedUp?: string | null | undefined;
@@ -25,10 +26,11 @@ export function BoxPanel(props: {
   /** Place every listed file on a deterministic grid. */
   onPlaceAll?: ((paths: string[]) => void) | undefined;
 }) {
+  // FR-307: `.ink.svg` sidecars are real objects - they list here even
+  // when bound to a parent node (badged), so they can be placed and
+  // linked independently.
   const unplaced = props.files.filter(
-    (f) =>
-      isBoxUserObject(f.path, props.boundInkPaths) &&
-      !props.placedPaths.has(f.path),
+    (f) => isBoxUserObject(f.path) && !props.placedPaths.has(f.path),
   );
   return (
     <section className="box-panel" aria-label="The Box - unplaced objects">
@@ -68,6 +70,11 @@ export function BoxPanel(props: {
             >
               <Icon name={fileIcon(f.path)} size={14} />
               <span className="box-panel-name">{f.path}</span>
+              {props.boundInkPaths?.has(f.path) && (
+                <span className="box-panel-badge" title="Bound ink overlay">
+                  ink
+                </span>
+              )}
               {props.onPlace && (
                 <button
                   type="button"

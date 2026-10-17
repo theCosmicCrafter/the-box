@@ -291,13 +291,14 @@ sub-pixel target when zoomed out - it is now `vector-effect:
 non-scaling-stroke` (10 screen px) and hit-paths/handles gate off below
 z<0.08 where edges are visual mush. Endpoint circles lived inside
 EdgeLayer under the node DOM (a grab attempt dragged the node instead)
+
 - they moved to an `EdgeHandles` svg rendered after the node layer.
-`tauri build` did not rebuild `@box/ui` dist, so the renderer shipped
-stale code - `apps/desktop build` now runs `npm run build -w @box/core
+  `tauri build` did not rebuild `@box/ui` dist, so the renderer shipped
+  stale code - `apps/desktop build` now runs `npm run build -w @box/core
 -w @box/ui` first. Harness caveats: wheel zoom requires `ctrlKey`
-(plain wheel pans); each synthetic wheel tick is ~1.62x not 1.22x;
-`getScreenCTM()` on the path is the authoritative world->screen mapping
-(manual transform-matrix parsing misses the container offset).
+  (plain wheel pans); each synthetic wheel tick is ~1.62x not 1.22x;
+  `getScreenCTM()` on the path is the authoritative world->screen mapping
+  (manual transform-matrix parsing misses the container offset).
 
 Live-verified 2026-10-17 (seventh pass, release build on the bulk
 fixture): undo now covers edge re-route - retargeting
@@ -321,6 +322,22 @@ BoxPanel/other panes share the row) - drops/clicks past the viewport's
 right edge land outside it even when a node visually appears there
 (overflow hidden clips at the rect, but getBoundingClientRect is the
 only reliable bounds check).
+
+Live-verified 2026-10-17 (eighth pass, release build): FR-307 ink as
+object - a written `refs/f995.md.ink.svg` appeared in The Box via the
+watcher, placed as a file node that renders its strokes through <img>
+over box:// (kind "image" for .ink.svg); a sidecar bound via `box-ink`
+on its parent node shows an "ink" badge in The Box while unbound
+sidecars show none; placed sidecars leave the unplaced list normally.
+FR-306 spatial audio - ribbon volume button cycles off/all/viewport;
+mode "all" gave pan -0.03/gain 0.74 for a near-center node, pan -0.73/
+gain 0.52 after panning (position-tracked, setTargetAtTime ramps); mode
+"viewport" gave gain 0 with pan clamped -1 once the node left the view;
+mode "off" returns to passthrough (0/1); the pref persisted to
+`.box/settings.json` {"audio":{"mode":"off"}}. Audio elements carry
+`data-node-id` and mount only while their node is selected, so wiring
+is on-demand via a rAF tick against `__boxSpatial` (debug handle added
+for the harness). `fileIcon` gained .ink.svg -> pen and .svg -> image.
 
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM

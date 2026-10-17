@@ -61,6 +61,11 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
+import {
+  setSpatialAudioMode,
+  spatialTick,
+  type SpatialAudioMode,
+} from "./spatialAudio.js";
 
 interface WorkspaceChanged {
   files: WorkspaceFile[];
@@ -252,6 +257,7 @@ export function App() {
   const lastInkNode = useRef<string | null>(null);
   // FR-305: ext -> picked app path, persisted in .box/settings.json.
   const [openWithMap, setOpenWithMap] = useState<Record<string, string>>({});
+  const [audioMode, setAudioMode] = useState<SpatialAudioMode>("off");
   const savePrefs = useRef<ReturnType<typeof makeSaver> | null>(null);
   // FR-202 pick-up mode: a Box row's file follows the cursor until the
   // user clicks the canvas to place it (or Esc cancels).
@@ -549,6 +555,8 @@ export function App() {
     const s = await loadSettings(root);
     if (typeof s.ink?.color === "string") setInkColor(s.ink.color);
     if (typeof s.ink?.size === "number") setInkSize(s.ink.size);
+    if (s.audio?.mode === "all" || s.audio?.mode === "viewport")
+      setAudioMode(s.audio.mode);
     setOpenWithMap(s.openWith ?? {});
   };
 
@@ -560,6 +568,32 @@ export function App() {
     setInkSize(s);
     savePrefs.current?.({ ink: { color: inkColor, size: s } });
   };
+
+  // FR-306: cycle off -> all -> viewport; the mode persists as a non-truth
+  // pref and drives the WebAudio pan/gain graph for playing audio nodes.
+  const setAudioModePref = (m: SpatialAudioMode) => {
+    setSpatialAudioMode(m); // inside the click gesture: AudioContext allowed
+    setAudioMode(m);
+    savePrefs.current?.({ audio: { mode: m } });
+  };
+
+  // While spatial audio is on, recompute pan/gain every frame from the live
+  // camera; on switch-off (or board close) run one passthrough tick so
+  // already-wired elements return to neutral.
+  useEffect(() => {
+    let raf = 0;
+    const nodes = () => new Map((board?.nodes ?? []).map((n) => [n.id, n]));
+    const tick = () => {
+      const vp = vpElRef.current;
+      if (vp !== null) {
+        const r = vp.getBoundingClientRect();
+        spatialTick(camRef.current, r.width, r.height, nodes());
+      }
+      if (audioMode !== "off") raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  }, [audioMode, board]);
 
   // FR-305: preferred app per extension wins over the OS default.
   const openExternalSmart = async (rel: string) => {
@@ -1745,6 +1779,8 @@ export function App() {
         inkSize={inkSize}
         onInkSize={setInkSizePref}
         onZoomFit={() => setFitAll({ nonce: Date.now() })}
+        audioMode={audioMode}
+        onAudioMode={setAudioModePref}
       />
       {sidebarOpen && (
         <aside className="sidebar">

@@ -27,6 +27,7 @@ export type IconName =
   | "eraser"
   | "move"
   | "maximize"
+  | "volume"
   | "box";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -170,6 +171,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="m19 9 3 3-3 3" />
       <path d="m9 5 3-3 3 3" />
       <path d="m5 9-3 3 3 3" />
+    </>
+  ),
+  volume: (
+    <>
+      <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
     </>
   ),
   box: (

@@ -270,6 +270,7 @@ function FileBody(props: {
               <audio
                 src={url}
                 controls
+                data-node-id={node.id}
                 onPointerDown={(e) => e.stopPropagation()}
               />
             ) : (

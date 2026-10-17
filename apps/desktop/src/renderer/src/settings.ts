@@ -7,6 +7,8 @@
 
 export interface BoxSettings {
   ink?: { color?: string; size?: number };
+  /** FR-306: spatial audio mode - off (default), all, or viewport. */
+  audio?: { mode?: "off" | "all" | "viewport" };
   /** ext (lowercase, with dot) -> absolute app path for "Open with". */
   openWith?: Record<string, string>;
   [k: string]: unknown;
@@ -39,9 +41,11 @@ export async function saveSettings(
     ...cur,
     ...patch,
     ink: { ...cur.ink, ...patch.ink },
+    audio: { ...cur.audio, ...patch.audio },
     openWith: { ...cur.openWith, ...patch.openWith },
   };
   if (next.ink && Object.keys(next.ink).length === 0) delete next.ink;
+  if (next.audio && Object.keys(next.audio).length === 0) delete next.audio;
   if (next.openWith && Object.keys(next.openWith).length === 0)
     delete next.openWith;
   await window.box?.writeFileAtomic(

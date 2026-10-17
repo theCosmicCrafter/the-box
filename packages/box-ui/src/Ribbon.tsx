@@ -33,6 +33,9 @@ export function Ribbon(props: {
   onToggleSidebar?: (() => void) | undefined;
   /** Zoom-to-fit the whole board (Obsidian: Shift+1). */
   onZoomFit?: (() => void) | undefined;
+  /** FR-306: spatial audio mode; click cycles off -> all -> viewport. */
+  audioMode?: "off" | "all" | "viewport" | undefined;
+  onAudioMode?: ((mode: "off" | "all" | "viewport") => void) | undefined;
 }) {
   const activeColor = props.inkColor ?? INK_COLORS[0];
   const activeSize = props.inkSize ?? INK_SIZES[1];
@@ -153,6 +156,28 @@ export function Ribbon(props: {
               onClick={props.onZoomFit}
             >
               <Icon name="maximize" size={18} />
+            </button>
+          )}
+          {props.boardOpen && (
+            <button
+              className={
+                "ribbon-btn" +
+                (props.audioMode !== undefined && props.audioMode !== "off"
+                  ? " ribbon-active"
+                  : "")
+              }
+              title={`Spatial audio: ${props.audioMode ?? "off"} (click to cycle off/all/viewport)`}
+              onClick={() => {
+                const next =
+                  props.audioMode === "all"
+                    ? "viewport"
+                    : props.audioMode === "viewport"
+                      ? "off"
+                      : "all";
+                props.onAudioMode?.(next);
+              }}
+            >
+              <Icon name="volume" size={18} />
             </button>
           )}
           <button

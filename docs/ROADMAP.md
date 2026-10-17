@@ -36,7 +36,9 @@ reopen with index deleted → identical state; Christian does it unaided.
       edge labels/types, jump-to-link, audio objects, CM6 note editor) -
       all live-verified; CM6 note-body editor landed (markdown highlighting,
       frontmatter read-only by construction, atomic save)
-- [ ] Ink sidecar as first-class linkable object (FR-307 partial)
+- [x] Ink sidecar as first-class linkable object (FR-307): .ink.svg
+      sidecars are user objects - placeable, linkable, bound ones badged
+      in The Box, render through <img>
 - [~] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs -
   patterns ported (culling, proximity stroke pick, burst-safe camera);
   storytold/craft-libs `atomic` write hardening landed
@@ -59,8 +61,9 @@ measured via `tools/perf-probe.mjs` on a 500-node board.**
 
 - [~] FR-301..FR-307 (closed-app deletes, external `.canvas` edits, renames,
   multi-board consistency, broken-edge recovery, open-with prefs,
-  spatial audio modes, ink colors) - all live-verified except spatial
-  audio modes (audio chip exists; spatial panning unbuilt)
+  spatial audio modes, ink colors) - all live-verified; spatial
+  audio modes landed (off/all/viewport, WebAudio pan+gain by node
+  position vs viewport, pref persisted)
 - [x] Invariants I-6..I-9 green; problem-items UI for malformed notes
       (clickable rows locate+select the offending node)
 - [ ] OS-native icon fallback for typed tiles via `app.getFileIcon` IPC

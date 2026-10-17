@@ -67,9 +67,10 @@ function buildTree(files: WorkspaceFile[]): TreeNode[] {
 export function fileIcon(path: string): IconName {
   const p = path.toLowerCase();
   if (p.endsWith(".box.canvas")) return "board";
-  if (/\.(png|jpe?g|webp|gif|avif|tiff?)$/.test(p)) return "image";
+  if (/\.(png|jpe?g|webp|gif|avif|tiff?|svg)$/.test(p)) return "image";
   if (/\.(mp4|webm|mov|mkv)$/.test(p)) return "film";
   if (/\.(mp3|wav|flac|ogg|m4a)$/.test(p)) return "music";
+  if (p.endsWith(".ink.svg")) return "pen";
   if (/^link-[0-9a-f]{16}\.md$/.test(p.split("/").pop() ?? "")) return "link";
   if (p.endsWith(".md") || p.endsWith(".txt")) return "fileText";
   return "file";
@@ -77,17 +78,13 @@ export function fileIcon(path: string): IconName {
 
 /**
  * DATA-MODEL §1: returns true when `path` is a user object eligible for
- * "The Box" (unplaced holding area), excluding app-managed `.box/` files,
- * root-level `link-<16hex>.md` relationship notes, and bound `.ink.svg`
- * sidecar overlays.
+ * "The Box" (unplaced holding area), excluding app-managed `.box/` files
+ * and root-level `link-<16hex>.md` relationship notes. FR-307: `.ink.svg`
+ * sidecars ARE user objects - placeable and linkable in their own right.
  */
-export function isBoxUserObject(
-  path: string,
-  boundInkPaths?: ReadonlySet<string>,
-): boolean {
+export function isBoxUserObject(path: string): boolean {
   if (path === ".box" || path.startsWith(".box/")) return false;
   if (!/\//.test(path) && /^link-[0-9a-f]{16}\.md$/.test(path)) return false;
-  if (boundInkPaths?.has(path)) return false;
   return true;
 }
 
@@ -102,18 +99,15 @@ export function FileTree(props: {
    */
   unplacedOnly?: boolean | undefined;
   placedPaths?: Set<string> | undefined;
-  boundInkPaths?: Set<string> | undefined;
 }) {
   const visible = useMemo(
     () =>
       props.unplacedOnly
         ? props.files.filter(
-            (f) =>
-              isBoxUserObject(f.path, props.boundInkPaths) &&
-              !props.placedPaths?.has(f.path),
+            (f) => isBoxUserObject(f.path) && !props.placedPaths?.has(f.path),
           )
         : props.files,
-    [props.files, props.unplacedOnly, props.placedPaths, props.boundInkPaths],
+    [props.files, props.unplacedOnly, props.placedPaths],
   );
   const tree = useMemo(() => buildTree(visible), [visible]);
   // Top-level dirs start expanded (better first-run demo); toggles persist
