@@ -156,6 +156,9 @@ no coverage yet.
 | FR-201                | `e2e-multi-drag-nudge`     | 2     | live          |
 | FR-201                | `e2e-quick-open`           | 2     | live          |
 | FR-201                | `e2e-minimap`              | 2     | live          |
+| FR-201                | `e2e-undo-redo`            | 2     | live          |
+| FR-201                | `e2e-groups`               | 2     | live          |
+| FR-201                | `e2e-duplicate`            | 2     | live          |
 | FR-305                | `it-open-with-prefs`       | 3     | live          |
 | NFR-03                | `perf-pan-500`             | -     | live (60 FPS) |
 | NFR-04                | `perf-cold-5k`             | -     | live (2.2s)   |
@@ -246,6 +249,23 @@ Harness caveat added this pass: CDP `Input.dispatchMouseEvent` does not
 deliver a usable middle-button drag in WebView2 - DOM PointerEvents with
 `button:1` verify the same handler (autoscroll-style quirk, same class
 as the dblclick gap).
+
+Live-verified 2026-10-13 (fifth pass, release build on the bulk
+fixture): ADR-0007 session undo - a real input drag moved a node
+(+3602,+2251), Ctrl+Z restored the pre-drag position and persisted it,
+Ctrl+Shift+Z re-applied; Ctrl+A + Delete cleared all 497 placements and
+a single Ctrl+Z restored all 497; Ctrl+D on a file node ran `fs_copy`
+(`tone.wav` -> `tone-copy.wav` on disk) and placed the copy at +32,+32;
+Ctrl+G wrapped a 31-node marquee selection in a spec `group` node
+(bounds+pad, `type:"group"`, label), dragging the group border moved
+every spatially-contained child by the identical delta (+2747,+946),
+Ctrl+Shift+G removed the group while keeping all children; arrow-key
+nudge now commits via a 350 ms debounce (nudged x=3367 landed in the
+board file - previously nudges never persisted at all); multi-delete is
+batched into one capture + one board write. Harness caveat:
+`setPointerCapture` throws on synthetic PointerEvent ids, so DOM-event
+tests can move nodes but never select them - use real CDP input for
+selection paths.
 
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM

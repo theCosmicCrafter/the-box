@@ -40,8 +40,9 @@ reopen with index deleted → identical state; Christian does it unaided.
 - [~] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs -
   patterns ported (culling, proximity stroke pick, burst-safe camera);
   storytold/craft-libs `atomic` write hardening landed
-- [ ] Undo-as-file-data: persist the op log in or beside `.box.canvas` so undo
-      survives restart (T-14, Tietze pattern; fits files-are-truth)
+- [~] Undo: session snapshot stack live (Ctrl+Z/Y, ADR-0007); persisted
+  op-log beside `.box.canvas` is the accepted v2 (T-14, Tietze pattern;
+  fits files-are-truth) - deferred until the op vocabulary stabilizes
 - [ ] Regions with parameters: group/frame nodes carry per-region config,
       generalizing the Box holding area (T-14, Ferrate biome pattern)
 - [~] Ink smoothing polish: stroke quality over feature count (T-14,

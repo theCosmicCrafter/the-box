@@ -5,6 +5,7 @@
 // on disk (self-write echoes compare identical and are skipped).
 
 import type {
+  CanvasEdge,
   CanvasNode,
   Delta,
   InkStroke,
@@ -121,6 +122,9 @@ declare global {
         ext: string,
         b64: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+      copyFile: (
+        rel: string,
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
       pickFiles: (imagesOnly: boolean) => Promise<string[]>;
       onFileDrop: (
         cb: (paths: string[], x: number, y: number) => void,
@@ -184,7 +188,42 @@ export function App() {
     updateNode,
     addEdge,
     removeEdge,
+    restoreBoard,
   } = useBoxStore();
+
+  // ADR-0007: session undo - O(1) snapshots (persistent arrays) captured
+  // once per user op. `gestureDirty` coalesces in-flight gestures: the
+  // first mutation after a commit captures, the rest of the gesture
+  // skips, and the next saveBoard re-arms. Edge ops stay excluded -
+  // tombstone semantics are recoverable-by-design (I-2).
+  const undoStack = useRef<{ nodes: CanvasNode[]; edges: CanvasEdge[] }[]>([]);
+  const redoStack = useRef<{ nodes: CanvasNode[]; edges: CanvasEdge[] }[]>([]);
+  const gestureDirty = useRef(false);
+  const captureUndo = () => {
+    if (gestureDirty.current) return;
+    const b = useBoxStore.getState().board;
+    if (b === null) return;
+    gestureDirty.current = true;
+    undoStack.current.push({ nodes: b.nodes, edges: b.edges });
+    if (undoStack.current.length > 200) undoStack.current.shift();
+    redoStack.current = [];
+  };
+  const moveNodeC = (id: string, x: number, y: number) => {
+    captureUndo();
+    moveNode(id, x, y);
+  };
+  const addNodeC = (n: CanvasNode) => {
+    captureUndo();
+    addNode(n);
+  };
+  const removeNodeC = (id: string) => {
+    captureUndo();
+    removeNode(id);
+  };
+  const updateNodeC = (id: string, patch: Record<string, unknown>) => {
+    captureUndo();
+    updateNode(id, patch);
+  };
 
   // Reconcile-authoritative broken sets (pushed by the watcher).
   const [remote, setRemote] = useState<{
@@ -495,7 +534,7 @@ export function App() {
         .setProblems([`ink save failed: ${r.error ?? rel}`]);
       return;
     }
-    if (n["box-ink"] !== rel) updateNode(nodeId, { "box-ink": rel });
+    if (n["box-ink"] !== rel) updateNodeC(nodeId, { "box-ink": rel });
     setInkMap(new Map(inkMap).set(nodeId, strokes));
     lastInkNode.current = nodeId;
     await saveBoard();
@@ -576,7 +615,7 @@ export function App() {
     const kept = strokes.slice(0, -1);
     if (kept.length === 0) {
       await window.box.trashFile(workspaceRoot, rel);
-      updateNode(nodeId, { "box-ink": undefined });
+      updateNodeC(nodeId, { "box-ink": undefined });
       const m = new Map(inkMap);
       m.delete(nodeId);
       setInkMap(m);
@@ -625,7 +664,7 @@ export function App() {
     if (kept.length === strokes.length) return;
     if (kept.length === 0) {
       await window.box.trashFile(workspaceRoot, rel);
-      updateNode(nodeId, { "box-ink": undefined });
+      updateNodeC(nodeId, { "box-ink": undefined });
       const m = new Map(inkMap);
       m.delete(nodeId);
       setInkMap(m);
@@ -718,14 +757,23 @@ export function App() {
         setQuickOpen((v) => !v);
         return;
       }
-      if (
-        (e.key === "z" || e.key === "Z") &&
-        (e.ctrlKey || e.metaKey) &&
-        inkMode !== "off" &&
-        lastInkNode.current !== null
-      ) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        if (board === null) return;
         e.preventDefault();
-        void inkUndo(lastInkNode.current);
+        // Ink mode keeps its own stroke-level undo; the board stack
+        // owns everything else (ADR-0007).
+        if (e.shiftKey) void redo();
+        else if (inkMode !== "off" && lastInkNode.current !== null)
+          void inkUndo(lastInkNode.current);
+        else void undo();
+        return;
+      }
+      if (mod && (e.key === "y" || e.key === "Y")) {
+        if (board === null) return;
+        e.preventDefault();
+        void redo();
+        return;
       }
     };
     window.addEventListener("keydown", onKey);
@@ -765,7 +813,7 @@ export function App() {
         height: 180,
         file: paths[i]!,
       };
-      addNode(node);
+      addNodeC(node);
       next.push(node);
     }
     await saveBoard();
@@ -800,6 +848,28 @@ export function App() {
       boardPath,
       serializeBoard(b),
     );
+    gestureDirty.current = false;
+  };
+
+  // ADR-0007 v1: restore a captured snapshot through the normal board
+  // write path - undo never invents a second persistence channel.
+  const undo = async () => {
+    const snap = undoStack.current.pop();
+    const b = useBoxStore.getState().board;
+    if (snap === undefined || b === null) return;
+    redoStack.current.push({ nodes: b.nodes, edges: b.edges });
+    gestureDirty.current = false;
+    restoreBoard(snap.nodes, snap.edges);
+    await saveBoard();
+  };
+  const redo = async () => {
+    const snap = redoStack.current.pop();
+    const b = useBoxStore.getState().board;
+    if (snap === undefined || b === null) return;
+    undoStack.current.push({ nodes: b.nodes, edges: b.edges });
+    gestureDirty.current = false;
+    restoreBoard(snap.nodes, snap.edges);
+    await saveBoard();
   };
 
   // The round-trip half of the wedge: whatever the watcher reports, apply
@@ -960,7 +1030,7 @@ export function App() {
       height: 90,
       text: "",
     };
-    addNode(node);
+    addNodeC(node);
     setEditingNode(node.id);
     await saveBoard();
   };
@@ -981,7 +1051,7 @@ export function App() {
         height: 180,
         file: paths[i]!,
       };
-      addNode(node);
+      addNodeC(node);
     }
     await saveBoard();
   };
@@ -1053,7 +1123,7 @@ export function App() {
           height: 120,
           text: text.slice(0, 4000),
         };
-        addNode(node);
+        addNodeC(node);
         await saveBoard();
         return;
       }
@@ -1196,7 +1266,7 @@ export function App() {
           const swatch = (v: string | null, label: string): MenuItem => ({
             label,
             onPick: () => {
-              updateNode(node.id, { color: v ?? undefined });
+              updateNodeC(node.id, { color: v ?? undefined });
               void saveBoard();
             },
           });
@@ -1263,7 +1333,7 @@ export function App() {
               if (r.ok) {
                 // The node would render broken (I-7); an intentional delete
                 // removes the placement too - the watcher reconciles edges.
-                removeNode(node.id);
+                removeNodeC(node.id);
                 await saveBoard();
                 await rescan();
               } else {
@@ -1337,7 +1407,7 @@ export function App() {
     });
     const errors = await applyPlan(workspaceRoot, plan);
     if (errors.length === 0) {
-      addNode(node);
+      addNodeC(node);
       addEdge(edge);
       setEditingNode(node.id);
       void rescan();
@@ -1348,12 +1418,95 @@ export function App() {
 
   // Delete key on a selected node: remove the placement, keep the file.
   const deleteNode = async (id: string) => {
-    removeNode(id);
+    removeNodeC(id);
     await saveBoard();
   };
 
+  // Multi-delete: one capture + one board write for the whole set.
+  const deleteNodes = async (ids: string[]) => {
+    for (const id of ids) removeNodeC(id);
+    await saveBoard();
+  };
+
+  // JSON Canvas groups: spatial membership (node center inside bounds),
+  // so creating a group is just placing a bigger rect around the set.
+  const groupSelection = async (ids: string[]) => {
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const ns = b.nodes.filter((n) => ids.includes(n.id));
+    if (ns.length === 0) return;
+    const PAD = 48;
+    const x0 = Math.min(...ns.map((n) => n.x)) - PAD;
+    const y0 = Math.min(...ns.map((n) => n.y)) - PAD;
+    const x1 = Math.max(...ns.map((n) => n.x + n.width)) + PAD;
+    const y1 = Math.max(...ns.map((n) => n.y + n.height)) + PAD;
+    addNodeC({
+      id: newNodeId(),
+      type: "group",
+      x: x0,
+      y: y0,
+      width: x1 - x0,
+      height: y1 - y0,
+      label: "Group",
+    });
+    await saveBoard();
+  };
+
+  // Ungroup removes the group rect only - members are never touched.
+  const ungroupSelection = async (ids: string[]) => {
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const groups = ids.filter((id) =>
+      b.nodes.some((n) => n.id === id && n.type === "group"),
+    );
+    for (const id of groups) removeNodeC(id);
+    if (groups.length > 0) await saveBoard();
+  };
+
+  // Ctrl+D duplicate: text/link/group nodes clone their record; file
+  // nodes copy the file on disk first (files-are-truth - two nodes may
+  // not share one object identity).
+  const duplicateNodes = async (ids: string[]) => {
+    const b = useBoxStore.getState().board;
+    if (!b || !window.box) return;
+    for (const id of ids) {
+      const n = b.nodes.find((x) => x.id === id);
+      if (!n) continue;
+      if (n.type === "file") {
+        const r = await window.box.copyFile(n.file);
+        if (!r.ok || !r.path) {
+          useBoxStore
+            .getState()
+            .setProblems([`duplicate failed: ${r.error ?? "unknown"}`]);
+          continue;
+        }
+        addNodeC({
+          ...n,
+          id: newNodeId(),
+          x: n.x + 32,
+          y: n.y + 32,
+          file: r.path,
+        });
+        continue;
+      }
+      addNodeC({ ...n, id: newNodeId(), x: n.x + 32, y: n.y + 32 });
+    }
+    await saveBoard();
+    await rescan();
+  };
+
+  // Ctrl+V: paste at the viewport center (same content paths as the
+  // context-menu paste, just keyboard-driven).
+  const pasteAtCenter = async () => {
+    const vp = vpElRef.current;
+    if (!vp) return;
+    const r = vp.getBoundingClientRect();
+    const w = screenToWorld(camRef.current, r.width / 2, r.height / 2);
+    await pasteAt(w.x, w.y);
+  };
+
   const commitText = async (id: string, text: string) => {
-    updateNode(id, { text });
+    updateNodeC(id, { text });
     setEditingNode(null);
     await saveBoard();
   };
@@ -1425,11 +1578,16 @@ export function App() {
             onFileCommit={(id, t) => void commitFileEdit(id, t)}
             onFileEditCancel={() => setFileEdit(null)}
             resolveMedia={resolveMedia}
-            onMove={moveNode}
-            onResize={(id, w, h) => updateNode(id, { width: w, height: h })}
+            onMove={moveNodeC}
+            onResize={(id, w, h) => updateNodeC(id, { width: w, height: h })}
             onCommit={() => void saveBoard()}
             onTextCommit={(id, t) => void commitText(id, t)}
             onDeleteNode={(id) => void deleteNode(id)}
+            onDeleteNodes={(ids) => void deleteNodes(ids)}
+            onGroup={(ids) => void groupSelection(ids)}
+            onUngroup={(ids) => void ungroupSelection(ids)}
+            onDuplicate={(ids) => void duplicateNodes(ids)}
+            onPasteRequest={() => void pasteAtCenter()}
             onCreateEdge={(f, t, fs, ts) => void createEdge(f, t, fs, ts)}
             onDeleteEdge={(id) => void deleteEdge(id)}
             onSelectEdge={(id) => void selectEdge(id)}

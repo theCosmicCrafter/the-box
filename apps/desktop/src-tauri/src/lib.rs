@@ -798,6 +798,41 @@ fn new_binary_file(
     }
 }
 
+// Ctrl+D duplicate: workspace file copied to `<stem>-copy[-N].<ext>` in the
+// same folder (files-are-truth - duplicating an object duplicates its file).
+#[tauri::command]
+fn fs_copy(state: State<'_, AppState>, rel: String) -> FileResult {
+    let run = session_root(&state).and_then(|root| {
+        if !is_path_rel(&rel) {
+            return Err(cmd_err("bad path"));
+        }
+        let src = resolve_inside(&root, &rel).ok_or_else(|| cmd_err("bad path"))?;
+        if !src.is_file() {
+            return Err(cmd_err("not a file"));
+        }
+        let bytes = fs::read(&src).map_err(cmd_err)?;
+        let parent = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+        let name = rel.rsplit('/').next().unwrap_or(&rel);
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) if !s.is_empty() => (s.to_string(), e.to_string()),
+            _ => (name.to_string(), "bin".to_string()),
+        };
+        create_new(&root, parent, &format!("{stem}-copy"), &ext, &bytes).map_err(cmd_err)
+    });
+    match run {
+        Ok(path) => FileResult {
+            ok: true,
+            path: Some(path),
+            error: None,
+        },
+        Err(e) => FileResult {
+            ok: false,
+            path: None,
+            error: e.error,
+        },
+    }
+}
+
 // Native multi-picker feeding import_files (drag-drop's keyboard cousin).
 #[tauri::command]
 fn pick_files(images_only: bool) -> Vec<String> {
@@ -966,6 +1001,7 @@ pub fn run() {
             import_files,
             new_text_file,
             new_binary_file,
+            fs_copy,
             pick_files,
         ])
         .run(tauri::generate_context!())

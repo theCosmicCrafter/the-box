@@ -1478,3 +1478,26 @@ button:hover {
   stroke: #7eb8ff;
   stroke-width: 1.2;
 }
+
+/* JSON Canvas group node: a labeled translucent region behind members. */
+.node-group {
+  background: rgba(126, 184, 255, 0.05);
+  border: 1px dashed #3a4763;
+  border-radius: 10px;
+}
+
+.node-group .node-label {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7d8794;
+  pointer-events: none;
+}
+
+.node-group.selected {
+  border-color: #7eb8ff;
+  border-style: solid;
+}

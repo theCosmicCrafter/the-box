@@ -32,6 +32,8 @@ export interface BoxState {
   updateNode: (id: string, patch: Record<string, unknown>) => void;
   addEdge: (edge: CanvasEdge) => void;
   removeEdge: (edgeId: string) => void;
+  /** Undo restore: swap the whole node/edge arrays in one write. */
+  restoreBoard: (nodes: CanvasNode[], edges: CanvasEdge[]) => void;
 }
 
 export const useBoxStore = create<BoxState>((set) => ({
@@ -108,5 +110,9 @@ export const useBoxStore = create<BoxState>((set) => ({
               edges: s.board.edges.filter((e) => e.id !== edgeId),
             },
           },
+    ),
+  restoreBoard: (nodes, edges) =>
+    set((s) =>
+      s.board === null ? s : { board: { ...s.board, nodes, edges } },
     ),
 }));

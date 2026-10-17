@@ -60,6 +60,16 @@ export interface BoardViewProps {
   /** Imperative zoom-to-fit request: camera fits all nodes (Shift+1). */
   fitAllRequest?: { nonce: number } | undefined;
   onDeleteNode?: (id: string) => void;
+  /** Batch placement-removal (one board write); falls back to onDeleteNode. */
+  onDeleteNodes?: (ids: string[]) => void;
+  /** Ctrl+G: wrap the selection in a spec `group` node (spatial members). */
+  onGroup?: (ids: string[]) => void;
+  /** Ctrl+Shift+G: remove group nodes in the selection (children stay). */
+  onUngroup?: (ids: string[]) => void;
+  /** Ctrl+D: duplicate the selection (files copy on disk - truth). */
+  onDuplicate?: (ids: string[]) => void;
+  /** Ctrl+V: platform pastes clipboard content at viewport center. */
+  onPasteRequest?: () => void;
   onCreateEdge?: (
     fromNodeId: string,
     toNodeId: string,
@@ -213,6 +223,7 @@ export function BoardView(props: BoardViewProps) {
   draftRef.current = draft;
   const selRef = useRef(sel);
   selRef.current = sel;
+  const nudgeTimer = useRef<number | null>(null);
 
   const nodeHandlers = useMemo(() => {
     const nodeById = (id: string) =>
@@ -261,6 +272,23 @@ export function BoardView(props: BoardViewProps) {
             if (oid === id) continue;
             const n = cur.board.nodes.find((m) => m.id === oid);
             if (n) cur.onMove?.(oid, n.x + dx, n.y + dy);
+          }
+        }
+        // Spatial groups (JSON Canvas): dragging a group drags every node
+        // whose center sits inside the group's pre-drag bounds.
+        if (dragged.type === "group") {
+          for (const n of cur.board.nodes) {
+            if (n.id === id || n.type === "group") continue;
+            const cx = n.x + n.width / 2;
+            const cy = n.y + n.height / 2;
+            if (
+              cx >= dragged.x &&
+              cx <= dragged.x + dragged.width &&
+              cy >= dragged.y &&
+              cy <= dragged.y + dragged.height &&
+              !(selIds.size > 1 && selIds.has(n.id))
+            )
+              cur.onMove?.(n.id, n.x + dx, n.y + dy);
           }
         }
         cur.onMove?.(id, x, y);
@@ -394,6 +422,16 @@ export function BoardView(props: BoardViewProps) {
       } else if (mod && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         setSel(new Set(props.board.nodes.map((n) => n.id)));
+      } else if (mod && (e.key === "g" || e.key === "G")) {
+        e.preventDefault();
+        if (e.shiftKey) props.onUngroup?.([...sel]);
+        else if (sel.size > 0) props.onGroup?.([...sel]);
+      } else if (mod && (e.key === "d" || e.key === "D")) {
+        e.preventDefault();
+        if (sel.size > 0) props.onDuplicate?.([...sel]);
+      } else if (mod && (e.key === "v" || e.key === "V")) {
+        e.preventDefault();
+        props.onPasteRequest?.();
       } else if (
         e.key === "ArrowLeft" ||
         e.key === "ArrowRight" ||
@@ -411,6 +449,9 @@ export function BoardView(props: BoardViewProps) {
           const n = props.board.nodes.find((m) => m.id === id);
           if (n) props.onMove?.(id, n.x + dx, n.y + dy);
         }
+        // Held-arrow repeats coalesce into one board write after the burst.
+        if (nudgeTimer.current !== null) clearTimeout(nudgeTimer.current);
+        nudgeTimer.current = window.setTimeout(() => props.onCommit?.(), 350);
       } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedEdge) {
           props.onDeleteEdge?.(selectedEdge);
@@ -418,7 +459,8 @@ export function BoardView(props: BoardViewProps) {
         } else if (sel.size > 0) {
           // Removing a node removes the placement only - the file stays,
           // its edges render broken (I-7), and notes are never destroyed.
-          for (const id of sel) props.onDeleteNode?.(id);
+          if (props.onDeleteNodes) props.onDeleteNodes([...sel]);
+          else for (const id of sel) props.onDeleteNode?.(id);
           setSel(new Set());
         }
       }
@@ -431,7 +473,13 @@ export function BoardView(props: BoardViewProps) {
     props.board,
     props.onDeleteEdge,
     props.onDeleteNode,
+    props.onDeleteNodes,
+    props.onGroup,
+    props.onUngroup,
+    props.onDuplicate,
+    props.onPasteRequest,
     props.onMove,
+    props.onCommit,
   ]);
 
   // tldraw culling: off-viewport nodes get display:none (still in the DOM -
@@ -546,33 +594,41 @@ export function BoardView(props: BoardViewProps) {
         }}
         draft={draftGeom}
       />
-      {props.board.nodes.map((n) => (
-        <NodeView
-          key={n.id}
-          node={n}
-          cameraRef={camRef}
-          culled={
-            view !== null && !unCullable.has(n.id) && !nodeVisible(n, view)
-          }
-          selected={sel.has(n.id)}
-          broken={brokenNodes.has(n.id)}
-          dropTarget={draft?.overId === n.id}
-          resolveMedia={props.resolveMedia}
-          excerpt={n.type === "file" ? props.fileTexts?.get(n.file) : undefined}
-          fileSize={
-            n.type === "file" ? props.fileSizes?.get(n.file) : undefined
-          }
-          editing={
-            props.editingNode === n.id || props.fileEdit?.nodeId === n.id
-          }
-          fileEditText={
-            props.fileEdit?.nodeId === n.id ? props.fileEdit.text : undefined
-          }
-          ink={props.inkByNodeId?.get(n.id)}
-          inkMode={props.inkMode}
-          {...nodeHandlers}
-        />
-      ))}
+      {[...props.board.nodes]
+        // Groups render behind their spatial members (JSON Canvas
+        // convention - a group is a labeled region, not a z-sibling).
+        .sort(
+          (a, b) => (a.type === "group" ? 0 : 1) - (b.type === "group" ? 0 : 1),
+        )
+        .map((n) => (
+          <NodeView
+            key={n.id}
+            node={n}
+            cameraRef={camRef}
+            culled={
+              view !== null && !unCullable.has(n.id) && !nodeVisible(n, view)
+            }
+            selected={sel.has(n.id)}
+            broken={brokenNodes.has(n.id)}
+            dropTarget={draft?.overId === n.id}
+            resolveMedia={props.resolveMedia}
+            excerpt={
+              n.type === "file" ? props.fileTexts?.get(n.file) : undefined
+            }
+            fileSize={
+              n.type === "file" ? props.fileSizes?.get(n.file) : undefined
+            }
+            editing={
+              props.editingNode === n.id || props.fileEdit?.nodeId === n.id
+            }
+            fileEditText={
+              props.fileEdit?.nodeId === n.id ? props.fileEdit.text : undefined
+            }
+            ink={props.inkByNodeId?.get(n.id)}
+            inkMode={props.inkMode}
+            {...nodeHandlers}
+          />
+        ))}
       {(() => {
         if (!inkDraft) return null;
         const n = props.board.nodes.find((x) => x.id === inkDraft.nodeId);
