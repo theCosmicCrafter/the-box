@@ -859,7 +859,25 @@ export function App() {
   };
 
   // ADR-0007 v1: restore a captured snapshot through the normal board
-  // write path - undo never invents a second persistence channel.
+  // write path - undo never invents a second persistence channel. Edges
+  // whose endpoints differ between snapshots have their link notes
+  // rewritten too (R-B: the note is endpoint-authoritative, so a
+  // board-only restore would be reverted by the next reconcile).
+  const healChangedEdgeNotes = async (
+    before: CanvasEdge[],
+    after: CanvasEdge[],
+    restored: { nodes: CanvasNode[]; edges: CanvasEdge[] },
+  ) => {
+    const preMap = new Map(before.map((e) => [e.id, e]));
+    for (const e of after) {
+      const pre = preMap.get(e.id);
+      if (
+        pre !== undefined &&
+        (pre.fromNode !== e.fromNode || pre.toNode !== e.toNode)
+      )
+        await syncEdgeNote(e.id, restored);
+    }
+  };
   const undo = async () => {
     const snap = undoStack.current.pop();
     const b = useBoxStore.getState().board;
@@ -867,6 +885,7 @@ export function App() {
     redoStack.current.push({ nodes: b.nodes, edges: b.edges });
     gestureDirty.current = false;
     restoreBoard(snap.nodes, snap.edges);
+    await healChangedEdgeNotes(b.edges, snap.edges, snap);
     await saveBoard();
   };
   const redo = async () => {
@@ -876,6 +895,7 @@ export function App() {
     undoStack.current.push({ nodes: b.nodes, edges: b.edges });
     gestureDirty.current = false;
     restoreBoard(snap.nodes, snap.edges);
+    await healChangedEdgeNotes(b.edges, snap.edges, snap);
     await saveBoard();
   };
 
@@ -1013,6 +1033,41 @@ export function App() {
   // Re-route: an edge endpoint dropped on a new node keeps the edge id and
   // the link note - only from/to + the *-file denorms change (the note IS
   // the relationship, so retargeting edits it in place, not delete+create).
+  // Rewrite a link note's endpoint denorms to match the board edge. The
+  // note is endpoint-authoritative on reconcile (R-B: note wins), so any
+  // board-side endpoint change must write the note too or the next sync
+  // silently reverts it.
+  const syncEdgeNote = async (
+    edgeId: string,
+    b: { nodes: CanvasNode[]; edges: CanvasEdge[] },
+  ) => {
+    const e = b.edges.find((x) => x.id === edgeId);
+    if (e === undefined || workspaceRoot === null || !window.box) return;
+    const rel = e["box-link"];
+    const text = await window.box.readFile(workspaceRoot, rel);
+    if (text === null) return;
+    const { value } = parseLinkNote(text, rel);
+    if (!value) return;
+    const fm = { ...value.frontmatter };
+    fm.from = e.fromNode;
+    fm.to = e.toNode;
+    const fileOf = (id: string) => {
+      const n = b.nodes.find((x) => x.id === id);
+      return n?.type === "file" ? n.file : undefined;
+    };
+    const ff = fileOf(e.fromNode);
+    const tf = fileOf(e.toNode);
+    if (ff !== undefined) fm["from-file"] = ff;
+    else delete fm["from-file"];
+    if (tf !== undefined) fm["to-file"] = tf;
+    else delete fm["to-file"];
+    await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeLinkNote({ ...value, frontmatter: fm }),
+    );
+  };
+
   const retargetEdge = async (
     edgeId: string,
     end: "from" | "to",
@@ -1023,38 +1078,18 @@ export function App() {
     const e = b?.edges.find((x) => x.id === edgeId);
     const n = b?.nodes.find((x) => x.id === nodeId);
     if (!b || !e || !n || !workspaceRoot || !window.box) return;
+    captureUndo();
     updateEdge(
       edgeId,
       end === "to"
         ? { toNode: nodeId, toSide: side }
         : { fromNode: nodeId, fromSide: side },
     );
-    const rel = e["box-link"];
-    const text = await window.box.readFile(workspaceRoot, rel);
-    if (text !== null) {
-      const { value } = parseLinkNote(text, rel);
-      if (value) {
-        const fm = { ...value.frontmatter };
-        const file = n.type === "file" ? n.file : undefined;
-        if (end === "to") {
-          fm.to = nodeId;
-          if (file !== undefined) fm["to-file"] = file;
-          else delete fm["to-file"];
-        } else {
-          fm.from = nodeId;
-          if (file !== undefined) fm["from-file"] = file;
-          else delete fm["from-file"];
-        }
-        await window.box.writeFileAtomic(
-          workspaceRoot,
-          rel,
-          serializeLinkNote({ ...value, frontmatter: fm }),
-        );
-      }
-    }
+    const after = useBoxStore.getState().board;
+    if (after !== null) await syncEdgeNote(edgeId, after);
     await saveBoard();
     // If the open note panel shows this edge, refresh it.
-    if (edgeNote?.path === rel) void selectEdge(edgeId);
+    if (edgeNote?.path === e["box-link"]) void selectEdge(edgeId);
   };
 
   const saveNote = async (next: LinkNote) => {

@@ -299,6 +299,29 @@ stale code - `apps/desktop build` now runs `npm run build -w @box/core
 `getScreenCTM()` on the path is the authoritative world->screen mapping
 (manual transform-matrix parsing misses the container offset).
 
+Live-verified 2026-10-17 (seventh pass, release build on the bulk
+fixture): undo now covers edge re-route - retargeting
+`edge 0000000000000011` from `n-000000096f` to `n-00000003e3` then
+Ctrl+Z restored the board edge AND rewrote `link-0000000000000011.md`
+back to `to: n-000000096f` (`to-file` denorm too) - required because
+R-B makes the note endpoint-authoritative, so a board-only restore
+would be silently reverted by reconcile. Ctrl+V verified both ways:
+clipboard text -> text node on the board; a synthesized image/png
+ClipboardItem -> real `paste.png` workspace file (PNG magic verified on
+disk) + file node. Bug fixed live: the first paste navigated the whole
+webview to `edge://permission-request-dialog/` - Tauri's
+`on_permission_request` now allows ClipboardRead and denies all other
+kinds (local-first app needs nothing else). `fs_copy` gained
+adversarial tests and a naming fix: dotfiles/extensionless sources used
+to produce `name-copy.bin`; they now keep no extension (`.env` ->
+`.env-copy`, `README` -> `README-copy`), and `create_new` no longer
+emits the illegal trailing-dot name for empty ext. Harness caveat:
+the canvas viewport rect can be far narrower than the window (the
+BoxPanel/other panes share the row) - drops/clicks past the viewport's
+right edge land outside it even when a node visually appears there
+(overflow hidden clips at the rect, but getBoundingClientRect is the
+only reliable bounds check).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

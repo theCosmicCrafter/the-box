@@ -127,8 +127,6 @@ export function EdgeLayer({
         d: edgePathD(start, end),
         mid: edgeMidpoint(start, end),
         broken,
-        p0: { x: start.x, y: start.y },
-        p3: { x: end.x, y: end.y },
       },
     ];
   });
@@ -166,7 +164,7 @@ export function EdgeLayer({
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
       </defs>
-      {paths.map(({ e, d, mid, broken, p0, p3 }) => (
+      {paths.map(({ e, d, mid, broken }) => (
         <g key={e.id}>
           <path
             d={d}

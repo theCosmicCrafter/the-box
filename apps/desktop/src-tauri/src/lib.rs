@@ -711,7 +711,15 @@ fn create_new(
         })
         .collect();
     for i in 0..9999u32 {
-        let name = if i == 0 {
+        // Empty ext must not leave a trailing dot - "name." is an illegal
+        // Windows filename and create_new() would fail.
+        let name = if ext_s.is_empty() {
+            if i == 0 {
+                stem_s.clone()
+            } else {
+                format!("{stem_s}-{i}")
+            }
+        } else if i == 0 {
             format!("{stem_s}.{ext_s}")
         } else {
             format!("{stem_s}-{i}.{ext_s}")
@@ -800,25 +808,29 @@ fn new_binary_file(
 
 // Ctrl+D duplicate: workspace file copied to `<stem>-copy[-N].<ext>` in the
 // same folder (files-are-truth - duplicating an object duplicates its file).
+fn fs_copy_inner(root: &Path, rel: &str) -> Result<String, String> {
+    if !is_path_rel(rel) {
+        return Err("bad path".into());
+    }
+    let src = resolve_inside(root, rel).ok_or("bad path")?;
+    if !src.is_file() {
+        return Err("not a file".into());
+    }
+    let bytes = fs::read(&src).map_err(|e| e.to_string())?;
+    let parent = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    // Dotfiles (".env") and extensionless names keep no extension - a
+    // synthetic ".bin" would be wrong for both. Node path.extname parity.
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), e.to_string()),
+        _ => (name.to_string(), String::new()),
+    };
+    create_new(root, parent, &format!("{stem}-copy"), &ext, &bytes)
+}
+
 #[tauri::command]
 fn fs_copy(state: State<'_, AppState>, rel: String) -> FileResult {
-    let run = session_root(&state).and_then(|root| {
-        if !is_path_rel(&rel) {
-            return Err(cmd_err("bad path"));
-        }
-        let src = resolve_inside(&root, &rel).ok_or_else(|| cmd_err("bad path"))?;
-        if !src.is_file() {
-            return Err(cmd_err("not a file"));
-        }
-        let bytes = fs::read(&src).map_err(cmd_err)?;
-        let parent = rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-        let name = rel.rsplit('/').next().unwrap_or(&rel);
-        let (stem, ext) = match name.rsplit_once('.') {
-            Some((s, e)) if !s.is_empty() => (s.to_string(), e.to_string()),
-            _ => (name.to_string(), "bin".to_string()),
-        };
-        create_new(&root, parent, &format!("{stem}-copy"), &ext, &bytes).map_err(cmd_err)
-    });
+    let run = session_root(&state).and_then(|root| fs_copy_inner(&root, &rel).map_err(cmd_err));
     match run {
         Ok(path) => FileResult {
             ok: true,
@@ -943,6 +955,16 @@ pub fn run() {
         .manage(AppState {
             workspace_root: Mutex::new(None),
             watch: Mutex::new(None),
+        })
+        // WebView2's permission-request UI hijacks the whole webview to an
+        // edge:// dialog page (observed on first Ctrl+V). Grant clipboard
+        // read - paste is a first-class canvas op - and deny the rest: this
+        // is a local-first app, nothing else needs a permission.
+        .on_permission_request(|_, kind| match kind {
+            tauri::webview::PermissionKind::ClipboardRead => {
+                tauri::webview::PermissionResponse::Allow
+            }
+            _ => tauri::webview::PermissionResponse::Deny,
         })
         .register_uri_scheme_protocol("box", move |ctx, request| {
             let root = {

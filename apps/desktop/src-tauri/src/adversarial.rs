@@ -367,6 +367,52 @@ fn create_new_never_overwrites() {
 }
 
 #[test]
+fn fs_copy_copies_never_overwrites_and_names_safely() {
+    let ws = tmpdir("copy");
+    fs::write(ws.join("tone.wav"), b"AUD").unwrap();
+    // happy path: <stem>-copy.<ext>, bytes identical
+    let r = fs_copy_inner(&ws, "tone.wav").unwrap();
+    assert_eq!(r, "tone-copy.wav");
+    assert_eq!(fs::read(ws.join(&r)).unwrap(), b"AUD");
+    // collision chain: -copy, -copy-1, -copy-2 - source never clobbered
+    let r2 = fs_copy_inner(&ws, "tone.wav").unwrap();
+    assert_eq!(r2, "tone-copy-1.wav");
+    let r3 = fs_copy_inner(&ws, "tone.wav").unwrap();
+    assert_eq!(r3, "tone-copy-2.wav");
+    assert_eq!(fs::read(ws.join("tone.wav")).unwrap(), b"AUD");
+    // nested parent preserved
+    fs::create_dir_all(ws.join("refs")).unwrap();
+    fs::write(ws.join("refs/f.md"), b"md").unwrap();
+    let r4 = fs_copy_inner(&ws, "refs/f.md").unwrap();
+    assert_eq!(r4, "refs/f-copy.md");
+    // dotfile + extensionless: no synthetic extension, no trailing dot
+    fs::write(ws.join(".env"), b"K=V").unwrap();
+    let r5 = fs_copy_inner(&ws, ".env").unwrap();
+    assert_eq!(r5, ".env-copy");
+    fs::write(ws.join("README"), b"r").unwrap();
+    let r6 = fs_copy_inner(&ws, "README").unwrap();
+    assert_eq!(r6, "README-copy");
+    // multi-dot keeps the Node-style last extension
+    fs::write(ws.join("a.tar.gz"), b"t").unwrap();
+    let r7 = fs_copy_inner(&ws, "a.tar.gz").unwrap();
+    assert_eq!(r7, "a.tar-copy.gz");
+    // failure shapes: escapes, missing, directory - all clean errors
+    assert!(fs_copy_inner(&ws, "../evil").is_err());
+    assert!(fs_copy_inner(&ws, "a\\b").is_err());
+    assert!(fs_copy_inner(&ws, "nope.bin").is_err());
+    assert!(fs_copy_inner(&ws, "refs").is_err());
+}
+
+#[test]
+fn create_new_handles_empty_ext_without_trailing_dot() {
+    let ws = tmpdir("new-ext");
+    let p = create_new(&ws, "", "dotless", "", b"x").unwrap();
+    assert_eq!(p, "dotless");
+    let p2 = create_new(&ws, "", "dotless", "", b"y").unwrap();
+    assert_eq!(p2, "dotless-1");
+}
+
+#[test]
 fn open_with_app_must_be_absolute_existing_file() {
     // The app path is user-picked and lives outside the workspace - the
     // contract is absolute + existing file, never workspace containment.
