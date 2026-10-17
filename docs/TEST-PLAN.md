@@ -152,6 +152,10 @@ no coverage yet.
 | FR-204                | `it-edge-label`            | 2     | live          |
 | FR-205                | `it-jump-link`             | 2     | live          |
 | FR-206                | `it-audio-node`            | 2     | live          |
+| FR-201                | `e2e-selection-marquee`    | 2     | live          |
+| FR-201                | `e2e-multi-drag-nudge`     | 2     | live          |
+| FR-201                | `e2e-quick-open`           | 2     | live          |
+| FR-201                | `e2e-minimap`              | 2     | live          |
 | FR-305                | `it-open-with-prefs`       | 3     | live          |
 | NFR-03                | `perf-pan-500`             | -     | live (60 FPS) |
 | NFR-04                | `perf-cold-5k`             | -     | live (2.2s)   |
@@ -220,6 +224,28 @@ duplicate node ids (`hex(i).slice(0,10)` took the zero padding) and
 unquoted all-digit `box-edge` frontmatter values that js-yaml re-parsed
 as numbers - the app's own serializer was already safe (PLAIN_SCALAR
 rejects leading digits, JSON.stringify fallback quotes).
+
+Live-verified 2026-10-13 (fourth pass, release build on the bulk fixture,
+501 nodes): marquee selection - left-drag on empty canvas draws a rubber
+band (`.marquee-rect`), selects all intersecting nodes (350 of 501 in a
+partial band), Shift adds to the current selection, pan is unchanged on
+space-drag and middle-drag; multi-select (`Set<string>`) drives
+multi-drag with a common delta (three nodes all moved +2541,+2541),
+Ctrl+A selected all 501, arrow keys nudge the selection (+10 px step),
+Escape clears it, Delete/Backspace removed a 5-node marquee selection
+(501->496 persisted to the board file) while the source files stayed on
+disk; QuickOpen (Ctrl/Cmd+P) filters 5,204 files fuzzy-style, picking an
+unplaced file places it and persists, picking a placed file jump-focuses
+and selects its node without duplicating; MiniMap renders 501 node
+rects plus the live viewport box in the bottom-right overlay.
+Interaction-model note: left-drag on empty canvas now means marquee
+(tldraw/Figma convention); pan lives on middle-drag, space-drag, and
+wheel as before.
+
+Harness caveat added this pass: CDP `Input.dispatchMouseEvent` does not
+deliver a usable middle-button drag in WebView2 - DOM PointerEvents with
+`button:1` verify the same handler (autoscroll-style quirk, same class
+as the dblclick gap).
 
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM

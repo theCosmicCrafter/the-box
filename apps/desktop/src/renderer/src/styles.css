@@ -396,6 +396,15 @@ button:hover {
   cursor: default;
 }
 
+/* Marquee rubber band (screen space, over the world layer). */
+.marquee-rect {
+  position: absolute;
+  border: 1px solid rgba(126, 184, 255, 0.9);
+  background: rgba(126, 184, 255, 0.12);
+  pointer-events: none;
+  z-index: 30;
+}
+
 .canvas-world {
   position: absolute;
   top: 0;
@@ -1374,4 +1383,98 @@ button:hover {
 .canvas-viewport.ink-edit .node,
 .canvas-viewport.ink-edit .node * {
   cursor: default !important;
+}
+
+/* QuickOpen palette (Ctrl+P) - Obsidian-style centered switcher. */
+.quickopen-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 7, 10, 0.55);
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.quickopen {
+  width: min(560px, 90%);
+  background: #171a20;
+  border: 1px solid #2a3140;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.quickopen-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  font: inherit;
+  color: #e8ecf2;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #2a3140;
+  outline: none;
+}
+
+.quickopen-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.quickopen-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: #c6cdd8;
+}
+
+.quickopen-row.active {
+  background: #243050;
+  color: #ffffff;
+}
+
+.quickopen-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickopen-kind {
+  color: #7d8794;
+  font-size: 11px;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.quickopen-empty {
+  padding: 14px;
+  color: #7d8794;
+  text-align: center;
+}
+
+/* MiniMap - bottom-right board overview + click/drag navigation. */
+.minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 25;
+  border: 1px solid #2a3140;
+  border-radius: 8px;
+  background: rgba(15, 17, 21, 0.88);
+  cursor: crosshair;
+  overflow: hidden;
+}
+
+.minimap-node {
+  fill: #4a5364;
+}
+
+.minimap-view {
+  fill: rgba(126, 184, 255, 0.12);
+  stroke: #7eb8ff;
+  stroke-width: 1.2;
 }

@@ -5,56 +5,57 @@
 // on disk (self-write echoes compare identical and are skipped).
 
 import type {
-    CanvasNode,
-    Delta,
-    InkStroke,
-    LinkNote,
-    ProblemItem,
-    Side,
-    WritePlan,
+  CanvasNode,
+  Delta,
+  InkStroke,
+  LinkNote,
+  ProblemItem,
+  Side,
+  WritePlan,
 } from "@box/core";
 import {
-    baseName,
-    BOARD_FORMAT,
-    createEdgePlan,
-    deleteEdgePlan,
-    fileKind,
-    hasScaffoldDirs,
-    isPathRel,
-    linkNoteName,
-    missingScaffoldFiles,
-    newNodeId,
-    parseBoard,
-    parseInkSvg,
-    parseLinkNote,
-    serializeBoard,
-    serializeInkSvg,
-    serializeLinkNote,
+  baseName,
+  BOARD_FORMAT,
+  createEdgePlan,
+  deleteEdgePlan,
+  fileKind,
+  hasScaffoldDirs,
+  isPathRel,
+  linkNoteName,
+  missingScaffoldFiles,
+  newNodeId,
+  parseBoard,
+  parseInkSvg,
+  parseLinkNote,
+  serializeBoard,
+  serializeInkSvg,
+  serializeLinkNote,
 } from "@box/core";
 import type {
-    Camera,
-    InkPoint,
-    MenuItem,
-    MenuSpec,
-    WorkspaceFile,
+  Camera,
+  InkPoint,
+  MenuItem,
+  MenuSpec,
+  WorkspaceFile,
 } from "@box/ui";
 import {
-    BoardView,
-    BoxPanel,
-    ContextMenu,
-    DEFAULT_CAMERA,
-    FileTree,
-    gridPlaceRect,
-    Icon,
-    ImageInspector,
-    NotePanel,
-    pathToPolygon,
-    pointInPolygon,
-    Ribbon,
-    screenToWorld,
-    strokeToPath,
-    translatePath,
-    useBoxStore,
+  BoardView,
+  BoxPanel,
+  ContextMenu,
+  DEFAULT_CAMERA,
+  FileTree,
+  gridPlaceRect,
+  Icon,
+  ImageInspector,
+  NotePanel,
+  pathToPolygon,
+  pointInPolygon,
+  QuickOpen,
+  Ribbon,
+  screenToWorld,
+  strokeToPath,
+  translatePath,
+  useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
@@ -233,6 +234,7 @@ export function App() {
   // Canvas context menu + the camera/viewport handles OS file drops need
   // to convert window coords into world space.
   const [menu, setMenu] = useState<MenuSpec | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
   const camRef = useRef<Camera>(DEFAULT_CAMERA);
   const vpElRef = useRef<HTMLDivElement | null>(null);
 
@@ -708,6 +710,15 @@ export function App() {
         return;
       }
       if (
+        (e.key === "p" || e.key === "P") &&
+        (e.ctrlKey || e.metaKey) &&
+        board !== null
+      ) {
+        e.preventDefault();
+        setQuickOpen((v) => !v);
+        return;
+      }
+      if (
         (e.key === "z" || e.key === "Z") &&
         (e.ctrlKey || e.metaKey) &&
         inkMode !== "off" &&
@@ -729,6 +740,16 @@ export function App() {
     const r = vp.getBoundingClientRect();
     const w = screenToWorld(camRef.current, r.width / 2, r.height / 2);
     await placeFiles([path], w.x - 130, w.y - 90);
+  };
+  // Quick-open pick: already on the board -> jump to it (Obsidian
+  // switcher semantics); unplaced -> drop at viewport center.
+  const quickOpenPick = async (path: string) => {
+    const hit = board?.nodes.find((n) => n.type === "file" && n.file === path);
+    if (hit) {
+      setFocusNode({ id: hit.id, nonce: Date.now() });
+      return;
+    }
+    await placeAtViewCenter(path);
   };
   const placeAllGrid = async (paths: string[]) => {
     const nodes = useBoxStore.getState().board?.nodes ?? [];
@@ -1577,6 +1598,13 @@ export function App() {
                 : "select a board, or make one in the sidebar"}
             </span>
           </div>
+        )}
+        {quickOpen && board !== null && (
+          <QuickOpen
+            items={files.map((f) => ({ path: f.path, kind: fileKind(f.path) }))}
+            onPick={(p) => void quickOpenPick(p)}
+            onClose={() => setQuickOpen(false)}
+          />
         )}
       </div>
     </main>

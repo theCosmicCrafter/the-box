@@ -76,7 +76,8 @@ export interface NodeViewProps {
   ink?: InkStroke[] | undefined;
   /** Board ink mode - draw/erase/edit reroute pointer gestures on file nodes. */
   inkMode?: "off" | "draw" | "erase" | "edit" | undefined;
-  onSelect: (id: string) => void;
+  /** additive = shift/ctrl held: toggle membership instead of replacing. */
+  onSelect: (id: string, additive: boolean) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
   onCommit: () => void;
@@ -497,7 +498,7 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
     }
     drag.current = { px: e.clientX, py: e.clientY, ox: node.x, oy: node.y };
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    props.onSelect(node.id);
+    props.onSelect(node.id, e.shiftKey || e.ctrlKey || e.metaKey);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {

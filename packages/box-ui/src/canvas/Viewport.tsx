@@ -22,6 +22,17 @@ export interface ViewportProps {
   /** Right-click on empty canvas: world coords + client coords (menus). */
   onBackgroundMenu?:
     ((wx: number, wy: number, cx: number, cy: number) => void) | undefined;
+  /** Left-drag on empty canvas draws a marquee (tldraw/Obsidian model).
+   *  Reports the world-space rect each move and on release. */
+  onMarquee?:
+    | ((
+        rect: { x: number; y: number; w: number; h: number },
+        phase: "move" | "end",
+        additive: boolean,
+      ) => void)
+    | undefined;
+  /** Screen-space overlay rendered above the world layer (minimap, HUD). */
+  overlay?: ReactNode;
   children: ReactNode;
   viewportRef?: RefObject<HTMLDivElement | null>;
   className?: string | undefined;
@@ -94,19 +105,59 @@ export function Viewport(props: ViewportProps) {
     };
   }, []);
 
+  const [marquee, setMarquee] = useState<{
+    sx: number;
+    sy: number;
+    cx: number;
+    cy: number;
+    additive: boolean;
+  } | null>(null);
+
   const onPointerDown = (e: React.PointerEvent) => {
-    if (
-      e.button === 1 ||
-      (e.button === 0 && (spaceDown.current || e.target === e.currentTarget))
-    ) {
+    if (e.button === 1 || (e.button === 0 && spaceDown.current)) {
       panState.current = { px: e.clientX, py: e.clientY };
       moved.current = false;
       (e.target as Element).setPointerCapture?.(e.pointerId);
       e.preventDefault();
+    } else if (e.button === 0 && e.target === e.currentTarget) {
+      // Left-drag on empty canvas = marquee select (tldraw/Obsidian);
+      // if no marquee handler is wired it falls back to a pan.
+      if (props.onMarquee) {
+        const r = ref.current?.getBoundingClientRect();
+        const sx = e.clientX - (r?.left ?? 0);
+        const sy = e.clientY - (r?.top ?? 0);
+        setMarquee({ sx, sy, cx: sx, cy: sy, additive: e.shiftKey });
+        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+      } else {
+        panState.current = { px: e.clientX, py: e.clientY };
+        moved.current = false;
+        (e.target as Element).setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+      }
     }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
+    if (marquee) {
+      const r = ref.current?.getBoundingClientRect();
+      const cx = e.clientX - (r?.left ?? 0);
+      const cy = e.clientY - (r?.top ?? 0);
+      setMarquee({ ...marquee, cx, cy });
+      const a = screenToWorld(camRef.current, marquee.sx, marquee.sy);
+      const b = screenToWorld(camRef.current, cx, cy);
+      props.onMarquee?.(
+        {
+          x: Math.min(a.x, b.x),
+          y: Math.min(a.y, b.y),
+          w: Math.abs(b.x - a.x),
+          h: Math.abs(b.y - a.y),
+        },
+        "move",
+        marquee.additive,
+      );
+      return;
+    }
     if (!panState.current) return;
     const dx = e.clientX - panState.current.px;
     const dy = e.clientY - panState.current.py;
@@ -116,6 +167,26 @@ export function Viewport(props: ViewportProps) {
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
+    if (marquee) {
+      const a = screenToWorld(camRef.current, marquee.sx, marquee.sy);
+      const b = screenToWorld(camRef.current, marquee.cx, marquee.cy);
+      props.onMarquee?.(
+        {
+          x: Math.min(a.x, b.x),
+          y: Math.min(a.y, b.y),
+          w: Math.abs(b.x - a.x),
+          h: Math.abs(b.y - a.y),
+        },
+        "end",
+        marquee.additive,
+      );
+      const wasClick =
+        Math.abs(marquee.cx - marquee.sx) + Math.abs(marquee.cy - marquee.sy) <
+        4;
+      setMarquee(null);
+      if (wasClick) props.onBackgroundClick?.();
+      return;
+    }
     if (panState.current && !moved.current && e.button === 0) {
       props.onBackgroundClick?.();
     }
@@ -188,6 +259,18 @@ export function Viewport(props: ViewportProps) {
       >
         {props.children}
       </div>
+      {props.overlay}
+      {marquee && (
+        <div
+          className="marquee-rect"
+          style={{
+            left: Math.min(marquee.sx, marquee.cx),
+            top: Math.min(marquee.sy, marquee.cy),
+            width: Math.abs(marquee.cx - marquee.sx),
+            height: Math.abs(marquee.cy - marquee.sy),
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -14,5 +14,6 @@ export * from "./FileList.js";
 export * from "./FileTree.js";
 export * from "./icons.js";
 export * from "./NotePanel.js";
+export * from "./QuickOpen.js";
 export * from "./Ribbon.js";
 export * from "./store.js";
