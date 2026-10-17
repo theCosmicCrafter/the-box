@@ -32,10 +32,10 @@ reopen with index deleted → identical state; Christian does it unaided.
 
 ## Stage 2 - The canvas earns its name
 
-- [~] FR-201..FR-207 (infinite pan/zoom, Box holding area, multi-board,
-  edge labels/types, jump-to-link, audio objects, CM6 note editor) -
-  all live-verified except FR-207 CodeMirror note editor (plain
-  textarea meets the functional contract; CM6 is polish)
+- [x] FR-201..FR-207 (infinite pan/zoom, Box holding area, multi-board,
+      edge labels/types, jump-to-link, audio objects, CM6 note editor) -
+      all live-verified; CM6 note-body editor landed (markdown highlighting,
+      frontmatter read-only by construction, atomic save)
 - [ ] Ink sidecar as first-class linkable object (FR-307 partial)
 - [~] Salvaged canvas code adapted from `reference/CanvasMCPClient` organs -
   patterns ported (culling, proximity stroke pick, burst-safe camera);
@@ -43,6 +43,8 @@ reopen with index deleted → identical state; Christian does it unaided.
 - [~] Undo: session snapshot stack live (Ctrl+Z/Y, ADR-0007); persisted
   op-log beside `.box.canvas` is the accepted v2 (T-14, Tietze pattern;
   fits files-are-truth) - deferred until the op vocabulary stabilizes
+- [x] Edge re-route: drag a selected edge's endpoint onto another node;
+      board + link-note denorms retarget atomically, empty-drop cancels
 - [ ] Regions with parameters: group/frame nodes carry per-region config,
       generalizing the Box holding area (T-14, Ferrate biome pattern)
 - [~] Ink smoothing polish: stroke quality over feature count (T-14,

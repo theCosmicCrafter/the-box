@@ -75,7 +75,13 @@ export interface EdgeLayerProps {
   draft?: DraftEdge | null;
   /** World-space viewport rect; off-view edges get display:none (culled). */
   viewRect?: WorldRect | undefined;
+  /** Camera zoom; hit-paths are disabled below MIN_INTERACT_ZOOM. */
+  zoom?: number | undefined;
 }
+
+/** Below this zoom, edges are too dense to click selectively; hit-paths and
+    endpoint handles are not rendered. */
+export const MIN_INTERACT_ZOOM = 0.08;
 
 export function EdgeLayer({
   board,
@@ -84,7 +90,9 @@ export function EdgeLayer({
   onSelect,
   draft,
   viewRect,
+  zoom,
 }: EdgeLayerProps) {
+  const interactive = zoom === undefined || zoom >= MIN_INTERACT_ZOOM;
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
 
   const paths = board.edges.flatMap((e: CanvasEdge) => {
@@ -114,7 +122,14 @@ export function EdgeLayer({
       ny: a1!.ny,
     };
     return [
-      { e, d: edgePathD(start, end), mid: edgeMidpoint(start, end), broken },
+      {
+        e,
+        d: edgePathD(start, end),
+        mid: edgeMidpoint(start, end),
+        broken,
+        p0: { x: start.x, y: start.y },
+        p3: { x: end.x, y: end.y },
+      },
     ];
   });
 
@@ -122,7 +137,11 @@ export function EdgeLayer({
     end === "arrow" ? `url(#arrowhead${broken ? "-broken" : ""})` : undefined;
 
   return (
-    <svg className="edge-layer" data-count={paths.length}>
+    <svg
+      className="edge-layer"
+      data-count={paths.length}
+      viewBox="-1000000 -1000000 2000000 2000000"
+    >
       <defs>
         <marker
           id="arrowhead"
@@ -147,7 +166,7 @@ export function EdgeLayer({
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
       </defs>
-      {paths.map(({ e, d, mid, broken }) => (
+      {paths.map(({ e, d, mid, broken, p0, p3 }) => (
         <g key={e.id}>
           <path
             d={d}
@@ -155,7 +174,7 @@ export function EdgeLayer({
             markerStart={marker(e.fromEnd, broken)}
             markerEnd={marker(e.toEnd, broken)}
           />
-          {onSelect && (
+          {onSelect !== undefined && interactive && (
             <path
               d={d}
               className="edge-hit"
@@ -182,6 +201,66 @@ export function EdgeLayer({
           className={`edge draft ${draft.overTarget ? "over" : ""}`}
         />
       )}
+    </svg>
+  );
+}
+
+export interface EdgeHandlesProps {
+  board: Board;
+  selectedId: string | null;
+  zoom?: number | undefined;
+  onRetargetStart: (
+    edgeId: string,
+    end: "from" | "to",
+    clientX: number,
+    clientY: number,
+  ) => void;
+}
+
+/** Endpoint handles for the selected edge. Rendered in a separate svg AFTER
+    the node DOM so the handles sit above nodes - the anchor point is on a
+    node's border, so circles inside EdgeLayer are covered by the node and
+    can never be grabbed. */
+export function EdgeHandles({
+  board,
+  selectedId,
+  zoom,
+  onRetargetStart,
+}: EdgeHandlesProps) {
+  const interactive = zoom === undefined || zoom >= MIN_INTERACT_ZOOM;
+  const endR = zoom !== undefined && zoom > 0 ? 8 / zoom : 8;
+  const e = board.edges.find((x) => x.id === selectedId);
+  if (e === undefined || !interactive) return null;
+  const byId = new Map(board.nodes.map((n) => [n.id, n]));
+  const from = byId.get(e.fromNode);
+  const to = byId.get(e.toNode);
+  if (!from || !to) return null; // broken edge - stubs have no handle target
+  const a1 = anchor(from, e.fromSide ?? "right");
+  const a2 = anchor(to, e.toSide ?? "left");
+  return (
+    <svg className="edge-handles" viewBox="-1000000 -1000000 2000000 2000000">
+      <circle
+        className="edge-endpoint"
+        cx={a1.x}
+        cy={a1.y}
+        r={endR}
+        onPointerDown={(ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          onRetargetStart(e.id, "from", ev.clientX, ev.clientY);
+        }}
+      />
+      <circle
+        className="edge-endpoint"
+        cx={a2.x}
+        cy={a2.y}
+        r={endR}
+        onPointerDown={(ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          onRetargetStart(e.id, "to", ev.clientX, ev.clientY);
+        }}
+      />
     </svg>
   );
 }

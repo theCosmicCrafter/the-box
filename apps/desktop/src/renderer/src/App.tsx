@@ -188,6 +188,7 @@ export function App() {
     updateNode,
     addEdge,
     removeEdge,
+    updateEdge,
     restoreBoard,
   } = useBoxStore();
 
@@ -739,7 +740,13 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          (t.closest?.("[contenteditable='true']") ?? null) !== null)
+      )
+        return;
       if (e.key === "Escape" && pickUp !== null) {
         setPickUp(null);
         return;
@@ -1001,6 +1008,53 @@ export function App() {
       setEdgeNote(null);
       useBoxStore.getState().setProblems(problems.map(fmtProblem));
     }
+  };
+
+  // Re-route: an edge endpoint dropped on a new node keeps the edge id and
+  // the link note - only from/to + the *-file denorms change (the note IS
+  // the relationship, so retargeting edits it in place, not delete+create).
+  const retargetEdge = async (
+    edgeId: string,
+    end: "from" | "to",
+    nodeId: string,
+    side: Side,
+  ) => {
+    const b = useBoxStore.getState().board;
+    const e = b?.edges.find((x) => x.id === edgeId);
+    const n = b?.nodes.find((x) => x.id === nodeId);
+    if (!b || !e || !n || !workspaceRoot || !window.box) return;
+    updateEdge(
+      edgeId,
+      end === "to"
+        ? { toNode: nodeId, toSide: side }
+        : { fromNode: nodeId, fromSide: side },
+    );
+    const rel = e["box-link"];
+    const text = await window.box.readFile(workspaceRoot, rel);
+    if (text !== null) {
+      const { value } = parseLinkNote(text, rel);
+      if (value) {
+        const fm = { ...value.frontmatter };
+        const file = n.type === "file" ? n.file : undefined;
+        if (end === "to") {
+          fm.to = nodeId;
+          if (file !== undefined) fm["to-file"] = file;
+          else delete fm["to-file"];
+        } else {
+          fm.from = nodeId;
+          if (file !== undefined) fm["from-file"] = file;
+          else delete fm["from-file"];
+        }
+        await window.box.writeFileAtomic(
+          workspaceRoot,
+          rel,
+          serializeLinkNote({ ...value, frontmatter: fm }),
+        );
+      }
+    }
+    await saveBoard();
+    // If the open note panel shows this edge, refresh it.
+    if (edgeNote?.path === rel) void selectEdge(edgeId);
   };
 
   const saveNote = async (next: LinkNote) => {
@@ -1589,6 +1643,9 @@ export function App() {
             onDuplicate={(ids) => void duplicateNodes(ids)}
             onPasteRequest={() => void pasteAtCenter()}
             onCreateEdge={(f, t, fs, ts) => void createEdge(f, t, fs, ts)}
+            onRetargetEdge={(id, end, nid, side) =>
+              void retargetEdge(id, end, nid, side)
+            }
             onDeleteEdge={(id) => void deleteEdge(id)}
             onSelectEdge={(id) => void selectEdge(id)}
             onDropFile={(p, x, y) => void placeFile(p, x, y)}

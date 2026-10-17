@@ -5,6 +5,7 @@
 
 import type { LinkNote } from "@box/core";
 import { useEffect, useState } from "react";
+import { CmBodyEditor } from "./CmBodyEditor.js";
 
 export interface NotePanelProps {
   note: LinkNote;
@@ -109,13 +110,15 @@ export function NotePanel({
           />
         </dd>
       </dl>
-      <textarea
-        className="note-panel-body"
-        value={body}
-        placeholder="What does this connection mean?"
-        onChange={(e) => setBody(e.target.value)}
-        rows={10}
-      />
+      {/* FR-207: CM6 markdown editor for the body; frontmatter stays a
+          structured read-only layer above, so box-edge is never editable. */}
+      <div className="note-panel-body">
+        <CmBodyEditor
+          doc={body}
+          placeholder="What does this connection mean?"
+          onDoc={setBody}
+        />
+      </div>
       <footer className="note-panel-foot">
         <button onClick={save} disabled={!dirty}>
           Save note

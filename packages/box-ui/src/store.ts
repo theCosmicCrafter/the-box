@@ -32,6 +32,8 @@ export interface BoxState {
   updateNode: (id: string, patch: Record<string, unknown>) => void;
   addEdge: (edge: CanvasEdge) => void;
   removeEdge: (edgeId: string) => void;
+  /** Re-route etc: patch an edge's fields, id and box-link untouched. */
+  updateEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   /** Undo restore: swap the whole node/edge arrays in one write. */
   restoreBoard: (nodes: CanvasNode[], edges: CanvasEdge[]) => void;
 }
@@ -108,6 +110,19 @@ export const useBoxStore = create<BoxState>((set) => ({
             board: {
               ...s.board,
               edges: s.board.edges.filter((e) => e.id !== edgeId),
+            },
+          },
+    ),
+  updateEdge: (edgeId, patch) =>
+    set((s) =>
+      s.board === null
+        ? s
+        : {
+            board: {
+              ...s.board,
+              edges: s.board.edges.map((e) =>
+                e.id === edgeId ? ({ ...e, ...patch } as CanvasEdge) : e,
+              ),
             },
           },
     ),

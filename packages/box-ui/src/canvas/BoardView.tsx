@@ -8,10 +8,10 @@
 import type { Board, CanvasNode, InkStroke, Side } from "@box/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
-import { DEFAULT_CAMERA, zoomToFit } from "./camera.js";
+import { DEFAULT_CAMERA, screenToWorld, zoomToFit } from "./camera.js";
 import { nodeVisible, worldViewport } from "./cull.js";
 import type { DraftEdge } from "./EdgeLayer.js";
-import { EdgeLayer, anchor } from "./EdgeLayer.js";
+import { EdgeHandles, EdgeLayer, anchor } from "./EdgeLayer.js";
 import type { InkPoint } from "./ink.js";
 import { strokeToPath } from "./ink.js";
 import { MiniMap } from "./MiniMap.js";
@@ -70,6 +70,13 @@ export interface BoardViewProps {
   onDuplicate?: (ids: string[]) => void;
   /** Ctrl+V: platform pastes clipboard content at viewport center. */
   onPasteRequest?: () => void;
+  /** Edge endpoint dropped on a node - re-route keeping id + note. */
+  onRetargetEdge?: (
+    edgeId: string,
+    end: "from" | "to",
+    nodeId: string,
+    side: Side,
+  ) => void;
   onCreateEdge?: (
     fromNodeId: string,
     toNodeId: string,
@@ -109,6 +116,15 @@ export interface BoardViewProps {
 interface Draft {
   fromId: string;
   fromSide: Side;
+  x: number;
+  y: number;
+  overId: string | null;
+}
+
+/** Edge re-route gesture: which endpoint is being dragged + cursor pos. */
+interface Retarget {
+  edgeId: string;
+  end: "from" | "to";
   x: number;
   y: number;
   overId: string | null;
@@ -202,6 +218,7 @@ export function BoardView(props: BoardViewProps) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [retarget, setRetarget] = useState<Retarget | null>(null);
   const [inkDraft, setInkDraft] = useState<{
     nodeId: string;
     points: InkPoint[];
@@ -225,23 +242,19 @@ export function BoardView(props: BoardViewProps) {
   selRef.current = sel;
   const nudgeTimer = useRef<number | null>(null);
 
+  const nodeById = (id: string) =>
+    propsRef.current.board.nodes.find((x) => x.id === id);
+  const nodeAtW = (wx: number, wy: number): CanvasNode | null => {
+    const nodes = propsRef.current.board.nodes;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i]!;
+      if (wx >= n.x && wx <= n.x + n.width && wy >= n.y && wy <= n.y + n.height)
+        return n;
+    }
+    return null;
+  };
+
   const nodeHandlers = useMemo(() => {
-    const nodeById = (id: string) =>
-      propsRef.current.board.nodes.find((x) => x.id === id);
-    const nodeAtW = (wx: number, wy: number): CanvasNode | null => {
-      const nodes = propsRef.current.board.nodes;
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        const n = nodes[i]!;
-        if (
-          wx >= n.x &&
-          wx <= n.x + n.width &&
-          wy >= n.y &&
-          wy <= n.y + n.height
-        )
-          return n;
-      }
-      return null;
-    };
     return {
       onSelect: (id: string, additive: boolean) => {
         setSel((cur) => {
@@ -422,6 +435,34 @@ export function BoardView(props: BoardViewProps) {
       } else if (mod && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         setSel(new Set(props.board.nodes.map((n) => n.id)));
+      } else if (e.shiftKey && e.key === "@") {
+        // Shift+2: zoom to selection (Obsidian convention).
+        if (sel.size === 0) return;
+        e.preventDefault();
+        const ns = props.board.nodes.filter((n) => sel.has(n.id));
+        const x0 = Math.min(...ns.map((n) => n.x));
+        const y0 = Math.min(...ns.map((n) => n.y));
+        const x1 = Math.max(...ns.map((n) => n.x + n.width));
+        const y1 = Math.max(...ns.map((n) => n.y + n.height));
+        const r = vpRef.current?.getBoundingClientRect();
+        if (r)
+          setCam(
+            zoomToFit(
+              { x: x0 - 60, y: y0 - 60, w: x1 - x0 + 120, h: y1 - y0 + 120 },
+              r.width,
+              r.height,
+            ),
+          );
+      } else if (e.shiftKey && e.key === ")") {
+        // Shift+0: reset to 100% zoom about the current view center.
+        e.preventDefault();
+        const r = vpRef.current?.getBoundingClientRect();
+        if (r)
+          setCam((c) => ({
+            z: 1,
+            x: c.x + (r.width / 2) * (1 / c.z - 1),
+            y: c.y + (r.height / 2) * (1 / c.z - 1),
+          }));
       } else if (mod && (e.key === "g" || e.key === "G")) {
         e.preventDefault();
         if (e.shiftKey) props.onUngroup?.([...sel]);
@@ -521,6 +562,86 @@ export function BoardView(props: BoardViewProps) {
     [props.board.nodes],
   );
 
+  // Edge re-route: pointerdown on a selected edge's endpoint handle starts
+  // the gesture; window listeners track the cursor until drop (Obsidian/
+  // tldraw re-route pattern). Dropping on a node re-anchors that endpoint;
+  // dropping on empty canvas cancels.
+  useEffect(() => {
+    if (retarget === null) return;
+    const vp = vpRef.current;
+    const move = (e: PointerEvent) => {
+      if (vp === null) return;
+      const r = vp.getBoundingClientRect();
+      const w = screenToWorld(
+        camRef.current,
+        e.clientX - r.left,
+        e.clientY - r.top,
+      );
+      const over = nodeAtW(w.x, w.y);
+      setRetarget((rt) =>
+        rt === null ? rt : { ...rt, x: w.x, y: w.y, overId: over?.id ?? null },
+      );
+    };
+    const up = (e: PointerEvent) => {
+      const rt = retarget;
+      setRetarget(null);
+      if (vp === null || rt === null) return;
+      const r = vp.getBoundingClientRect();
+      const w = screenToWorld(
+        camRef.current,
+        e.clientX - r.left,
+        e.clientY - r.top,
+      );
+      const over = nodeAtW(w.x, w.y);
+      if (over !== null) {
+        const edge = propsRef.current.board.edges.find(
+          (x) => x.id === rt.edgeId,
+        );
+        // Reject no-op drops (same endpoint back on its own node).
+        const same =
+          edge !== undefined &&
+          ((rt.end === "to" && edge.toNode === over.id) ||
+            (rt.end === "from" && edge.fromNode === over.id));
+        // A node cannot edge to itself.
+        const self =
+          edge !== undefined &&
+          ((rt.end === "to" && edge.fromNode === over.id) ||
+            (rt.end === "from" && edge.toNode === over.id));
+        if (!same && !self)
+          propsRef.current.onRetargetEdge?.(
+            rt.edgeId,
+            rt.end,
+            over.id,
+            sideToward(over, w.x, w.y),
+          );
+      }
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [retarget !== null]);
+
+  // Live draft geometry while re-routing: the dragged endpoint follows the
+  // cursor, the fixed endpoint keeps its anchor.
+  const retargetGeom: DraftEdge | null = useMemo(() => {
+    if (retarget === null) return null;
+    const e = props.board.edges.find((x) => x.id === retarget.edgeId);
+    if (e === undefined) return null;
+    const fixed = nodeById(retarget.end === "to" ? e.fromNode : e.toNode);
+    if (fixed === undefined) return null;
+    const fixedAnchor = anchor(
+      fixed,
+      retarget.end === "to" ? (e.fromSide ?? "right") : (e.toSide ?? "left"),
+    );
+    const cursor = { x: retarget.x, y: retarget.y, nx: 0, ny: 0 };
+    return retarget.end === "to"
+      ? { from: fixedAnchor, to: cursor, overTarget: retarget.overId !== null }
+      : { from: cursor, to: fixedAnchor, overTarget: retarget.overId !== null };
+  }, [retarget, props.board.edges]);
+
   const draftGeom: DraftEdge | null = useMemo(() => {
     if (!draft) return null;
     const fromNode = props.board.nodes.find((n) => n.id === draft.fromId);
@@ -588,11 +709,12 @@ export function BoardView(props: BoardViewProps) {
         brokenEdges={brokenEdges}
         selectedId={selectedEdge}
         viewRect={view ?? undefined}
+        zoom={cam.z}
         onSelect={(id) => {
           selectEdge(id);
           setSel(new Set());
         }}
-        draft={draftGeom}
+        draft={retargetGeom ?? draftGeom}
       />
       {[...props.board.nodes]
         // Groups render behind their spatial members (JSON Canvas
@@ -629,6 +751,25 @@ export function BoardView(props: BoardViewProps) {
             {...nodeHandlers}
           />
         ))}
+      {/* Endpoint handles for the selected edge render after the node DOM so
+          they sit above nodes - the anchor point is on a node's border. */}
+      <EdgeHandles
+        board={props.board}
+        selectedId={selectedEdge}
+        zoom={cam.z}
+        onRetargetStart={(edgeId, end) => {
+          const e = propsRef.current.board.edges.find((x) => x.id === edgeId);
+          const n = nodeById(
+            end === "to" ? (e?.toNode ?? "") : (e?.fromNode ?? ""),
+          );
+          if (n === undefined) return;
+          const a = anchor(
+            n,
+            end === "to" ? (e?.toSide ?? "left") : (e?.fromSide ?? "right"),
+          );
+          setRetarget({ edgeId, end, x: a.x, y: a.y, overId: null });
+        }}
+      />
       {(() => {
         if (!inkDraft) return null;
         const n = props.board.nodes.find((x) => x.id === inkDraft.nodeId);

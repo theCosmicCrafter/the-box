@@ -267,6 +267,38 @@ batched into one capture + one board write. Harness caveat:
 tests can move nodes but never select them - use real CDP input for
 selection paths.
 
+Live-verified 2026-10-17 (sixth pass, release build on the bulk
+fixture): edge re-route - selecting an edge (real click on the fat
+hit-path, verified `elementFromPoint` returns `edge-hit`) exposes two
+endpoint handles rendered in an overlay svg ABOVE the node layer;
+dragging the `to` handle onto `n-00000003e3` retargeted
+`edge 0000000000000012` (board + disk: `toNode`/`toSide` updated,
+`from` untouched, same `box-link` path) and the link note
+`link-0000000000000012.md` was atomically rewritten
+(`to:`/`to-file:` denorms now match the new target, `box-edge`/`created`
+/body preserved); dropping on empty canvas cancels. Zoom keys: Shift+0
+resets to z=1, Shift+2 fits the current selection. FR-207 CodeMirror 6:
+`.cm-editor` renders the link-note body, `insertText` edited it, the
+Save button round-tripped `Edge 15. live-edit` into
+`link-0000000000000010.md` with frontmatter intact; `box-edge`/`from`/
+`to`/`created` render as read-only structure outside the editor.
+
+Bugs found and fixed while verifying: `.edge-layer` was a ~6 px box at
+the world origin, so Chrome never hit-tested any edge path (edge
+selection had never worked); the svg now spans the +/-1e6 pan bounds
+with a matching viewBox. The 14-unit `.edge-hit` stroke shrank to a
+sub-pixel target when zoomed out - it is now `vector-effect:
+non-scaling-stroke` (10 screen px) and hit-paths/handles gate off below
+z<0.08 where edges are visual mush. Endpoint circles lived inside
+EdgeLayer under the node DOM (a grab attempt dragged the node instead)
+- they moved to an `EdgeHandles` svg rendered after the node layer.
+`tauri build` did not rebuild `@box/ui` dist, so the renderer shipped
+stale code - `apps/desktop build` now runs `npm run build -w @box/core
+-w @box/ui` first. Harness caveats: wheel zoom requires `ctrlKey`
+(plain wheel pans); each synthetic wheel tick is ~1.62x not 1.22x;
+`getScreenCTM()` on the path is the authoritative world->screen mapping
+(manual transform-matrix parsing misses the container offset).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

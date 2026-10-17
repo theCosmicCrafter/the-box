@@ -413,6 +413,13 @@ button:hover {
 
 .edge-layer {
   position: absolute;
+  /* The svg's own box must cover the canvas or Chrome refuses hit-testing
+     on child paths (overflow:visible paints them but they can't be clicked).
+     Pan is bounded at ±1e6 world px, so this covers the legal extent. */
+  left: -1000000px;
+  top: -1000000px;
+  width: 2000000px;
+  height: 2000000px;
   overflow: visible;
   pointer-events: none;
 }
@@ -447,7 +454,10 @@ button:hover {
 .edge-hit {
   fill: none;
   stroke: transparent;
-  stroke-width: 14;
+  stroke-width: 10;
+  /* Screen-space hit target: without this the 10-unit stroke shrinks to a
+     hairline when zoomed out and edges become unclickable. */
+  vector-effect: non-scaling-stroke;
   pointer-events: stroke;
   cursor: pointer;
 }
@@ -1500,4 +1510,45 @@ button:hover {
 .node-group.selected {
   border-color: #7eb8ff;
   border-style: solid;
+}
+
+/* Re-route handles: separate svg rendered after the node DOM so they sit
+   above nodes (the anchor is on a node's border; inside .edge-layer the
+   node element covers them and they can't be grabbed). */
+.edge-handles {
+  position: absolute;
+  left: -1000000px;
+  top: -1000000px;
+  width: 2000000px;
+  height: 2000000px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge-endpoint {
+  fill: #7eb8ff;
+  stroke: #0d1117;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: all;
+  cursor: grab;
+}
+
+/* CM6 note-body editor surface (FR-207). */
+.note-panel-body .cm-body {
+  border: 1px solid #2a3140;
+  border-radius: 8px;
+  background: rgba(10, 12, 16, 0.5);
+  min-height: 140px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.note-panel-body .cm-editor {
+  min-height: 140px;
+}
+
+.note-panel-body .cm-editor.cm-focused {
+  outline: none;
+  border-color: #3a4763;
 }
