@@ -36,6 +36,9 @@ reopen with index deleted → identical state; Christian does it unaided.
       edge labels/types, jump-to-link, audio objects, CM6 note editor) -
       all live-verified; CM6 note-body editor landed (markdown highlighting,
       frontmatter read-only by construction, atomic save)
+- [x] Foreign `.canvas` ingest (ADR-0009): any spec JSON Canvas file
+      normalizes in place on open (id remap + generated link notes) and
+      stays spec-readable - the Obsidian interop path
 - [x] Ink sidecar as first-class linkable object (FR-307): .ink.svg
       sidecars are user objects - placeable, linkable, bound ones badged
       in The Box, render through <img>

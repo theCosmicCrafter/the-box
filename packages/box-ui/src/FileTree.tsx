@@ -66,7 +66,7 @@ function buildTree(files: WorkspaceFile[]): TreeNode[] {
 
 export function fileIcon(path: string): IconName {
   const p = path.toLowerCase();
-  if (p.endsWith(".box.canvas")) return "board";
+  if (p.endsWith(".canvas")) return "board";
   if (/\.(png|jpe?g|webp|gif|avif|tiff?|svg)$/.test(p)) return "image";
   if (/\.(mp4|webm|mov|mkv)$/.test(p)) return "film";
   if (/\.(mp3|wav|flac|ogg|m4a)$/.test(p)) return "music";
@@ -159,7 +159,7 @@ export function FileTree(props: {
             e.dataTransfer.setData("application/x-box-file", n.path)
           }
           onClick={() => {
-            if (n.path.endsWith(".box.canvas")) props.onOpen?.(n.path);
+            if (n.path.endsWith(".canvas")) props.onOpen?.(n.path);
           }}
         >
           <Icon name={fileIcon(n.path)} size={14} />

@@ -353,6 +353,18 @@ commit); re-test moved group -12923,-8420 and both members by exactly
 that delta, still inside. board.test.ts covers box-region loose
 validation (object shape, v, non-group tolerance) - 12 pass.
 
+Live-verified 2026-10-17 (tenth pass, release build): ADR-0009 foreign
+.canvas ingest - wrote `imported.canvas` (Obsidian-shaped: arbitrary
+non-conforming ids, metadata) into the workspace; it scanned into the
+FileTree, click-open normalized it IN PLACE and opened it as a board:
+box-format added, node ids remapped to n-*, edge id to 16-hex with
+box-link + a real `link-5c3049b099284ecf.md` at root (from/to remapped,
+board + from-file denorms, type from label), unknown `metadata` key
+preserved, and the file still parses as plain JSON Canvas (Obsidian can
+still open it - in-place means one file, two readers). specImport.test
+covers remap/backing/preservation, idempotence, non-canvas rejection,
+and already-valid-id stability (108 core).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

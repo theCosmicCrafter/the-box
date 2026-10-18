@@ -282,7 +282,9 @@ const BY_EXT: Record<string, FileKind> = {
  * a text sniff on small files before settling for a tile.
  */
 export function fileKind(path: string): FileKind {
-  if (path.endsWith(".box.canvas")) return "board";
+  // ADR-0009: any *.canvas is a board candidate (".box.canvas" ends
+  // ".canvas"); foreign spec files ingest in place on open.
+  if (path.endsWith(".canvas")) return "board";
   const base = path.slice(path.lastIndexOf("/") + 1);
   const lower = base.toLowerCase();
   // extensionless well-known text files (Dockerfile, Makefile, LICENSE...)

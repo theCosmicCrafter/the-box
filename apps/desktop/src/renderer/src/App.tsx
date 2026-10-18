@@ -21,6 +21,7 @@ import {
   deleteEdgePlan,
   fileKind,
   hasScaffoldDirs,
+  importSpecCanvas,
   isPathRel,
   linkNoteName,
   missingScaffoldFiles,
@@ -331,8 +332,44 @@ export function App() {
     // setWorkspace (open, restore) still see the pre-set state value.
     const root = useBoxStore.getState().workspaceRoot;
     if (!root || !window.box) return false;
-    const text = await window.box.readFile(root, rel);
-    if (text === null) return false;
+    const rawText = await window.box.readFile(root, rel);
+    if (rawText === null) return false;
+    let text: string = rawText;
+    // ADR-0009: a foreign spec .canvas (no box-format marker) normalizes
+    // IN PLACE - remapped ids, generated link notes, added box-format -
+    // and keeps its name so spec readers (Obsidian) still open it.
+    if (
+      rel.endsWith(".canvas") &&
+      !rel.endsWith(".box.canvas") &&
+      !text.includes('"box-format"')
+    ) {
+      const imp = importSpecCanvas(text, rel);
+      if ("error" in imp) {
+        useBoxStore
+          .getState()
+          .setProblems([
+            `malformed-board: ${rel} - not a canvas (${imp.error})`,
+          ]);
+        return false;
+      }
+      const w = await window.box.writeFileAtomic(root, rel, imp.boardJson);
+      if (!w.ok) {
+        useBoxStore
+          .getState()
+          .setProblems([`canvas import write failed: ${w.error}`]);
+        return false;
+      }
+      for (const n of imp.notes) {
+        const nw = await window.box.writeFileAtomic(root, n.path, n.content);
+        if (!nw.ok) {
+          useBoxStore
+            .getState()
+            .setProblems([`canvas import note failed at ${n.path}`]);
+          return false;
+        }
+      }
+      text = imp.boardJson;
+    }
     const { value, problems } = parseBoard(text, rel);
     if (value) {
       openBoard(rel, value, problems);
@@ -765,7 +802,7 @@ export function App() {
     }
     const m = /^[^:]+:\s([^-]+?)(?:\s-\s|$)/.exec(p);
     const path = m?.[1]?.trim();
-    if (path?.endsWith(".box.canvas")) void loadBoardFile(path);
+    if (path?.endsWith(".canvas")) void loadBoardFile(path);
   };
 
   // Global keys: Shift+1 zoom-to-fit (Obsidian), Esc cancels pick-up,

@@ -17,6 +17,7 @@ conformant files and predict behavior on every malformed input.
 my-world/                        the workspace: an ordinary folder, user-owned
 ├── .box/                        the only folder the app owns
 │   ├── <name>.box.canvas        board file(s), one per board (JSON Canvas superset)
+│                               (foreign `*.canvas` anywhere ingests in place - ADR-0009)
 │   ├── tombstones.json          pending-delete ledger (see 4.3)
 │   ├── index.db                 DERIVED CACHE (node:sqlite). Safe to delete.
 │   └── settings.json            per-type open-with prefs, UI view state (non-truth)
