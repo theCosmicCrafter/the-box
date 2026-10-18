@@ -449,6 +449,19 @@ while `tauri dev` runs fails with 0x8007139F - kill the dev instance first.
 The matrix is regenerated on each FR/test change - a CI lint step checks
 every Stage-appropriate FR has a test-ref that exists.
 
+Live-verified 2026-10-18 (release build on the bulk fixture): ADR-0007 v2
+persisted undo - a real input drag moved `n-4204d4d8083f` from
+(5719,-13083) to (7880,-12543); the debounced flush wrote
+`.box/oplog-main-9394e662116ea6e5.json` (114 KB, `v:1`, `base` holding the
+pre-drag board, `entries:[]` since one step needs no diff). The process
+was killed and relaunched; `seedOplog` replayed the log on board open and
+Ctrl+Z restored (5719,-13083) to both the live board and the saved
+`.box.canvas` file. Ctrl+Y re-applied the move. Harness note: node
+click-through needs `getBoundingClientRect` targeting - the transform on
+`.board-body`'s child maps world to screen, and elementFromPoint at a
+computed center can still land on `.canvas-viewport` if the node is
+culled or overlapped.
+
 ## 9. Manual/dogfood protocol (Stage 1 exit)
 
 Christian, unaided, on `TheBox-Dev`: open folder → place 3 objects → draw 2

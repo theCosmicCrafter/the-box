@@ -8,6 +8,7 @@ export * from "./model/ids.js";
 export * from "./model/ink.js";
 export * from "./model/kind.js";
 export * from "./model/linkNote.js";
+export * from "./model/oplog.js";
 export * from "./model/paths.js";
 export * from "./model/specImport.js";
 export * from "./model/types.js";

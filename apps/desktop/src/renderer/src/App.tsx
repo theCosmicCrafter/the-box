@@ -26,12 +26,15 @@ import {
     linkNoteName,
     missingScaffoldFiles,
     newNodeId,
+    oplogPath,
     parseBoard,
     parseInkSvg,
     parseLinkNote,
+    parseOplogText,
     serializeBoard,
     serializeInkSvg,
     serializeLinkNote,
+    serializeOplog
 } from "@box/core";
 import type {
     Camera,
@@ -220,6 +223,30 @@ export function App() {
     undoStack.current.push({ nodes: b.nodes, edges: b.edges });
     if (undoStack.current.length > 200) undoStack.current.shift();
     redoStack.current = [];
+    scheduleOplogFlush();
+  };
+
+  // ADR-0007 v2: the stack also persists to `.box/oplog-<board>.json` -
+  // debounced, atomic, and written through the same channel as boards.
+  // Deltas are computed at flush time, so the hot path stays O(1).
+  const oplogTimer = useRef<number | undefined>(undefined);
+  const scheduleOplogFlush = () => {
+    window.clearTimeout(oplogTimer.current);
+    oplogTimer.current = window.setTimeout(() => {
+      const root = useBoxStore.getState().workspaceRoot;
+      const bp = useBoxStore.getState().boardPath;
+      if (!root || !bp || !window.box) return;
+      const s = serializeOplog(undoStack.current, bp);
+      if (s) void window.box.writeFileAtomic(root, s.path, s.json);
+    }, 800);
+  };
+  const seedOplog = async (root: string, boardRel: string) => {
+    undoStack.current = [];
+    redoStack.current = [];
+    const text = await window.box?.readFile(root, oplogPath(boardRel));
+    if (text === null || text === undefined) return;
+    const stack = parseOplogText(text, boardRel);
+    if (stack) undoStack.current = stack;
   };
   const moveNodeC = (id: string, x: number, y: number) => {
     captureUndo();
@@ -392,6 +419,8 @@ export function App() {
     const { value, problems } = parseBoard(text, rel);
     if (value) {
       openBoard(rel, value, problems);
+      // ADR-0007 v2: seed restart-surviving undo from the board's log.
+      void seedOplog(root, rel);
       return true;
     }
     useBoxStore.getState().setProblems(problems.map(fmtProblem));
@@ -977,6 +1006,7 @@ export function App() {
     restoreBoard(snap.nodes, snap.edges);
     await healChangedEdgeNotes(b.edges, snap.edges, snap);
     await saveBoard();
+    scheduleOplogFlush();
   };
   const redo = async () => {
     const snap = redoStack.current.pop();
@@ -987,6 +1017,7 @@ export function App() {
     restoreBoard(snap.nodes, snap.edges);
     await healChangedEdgeNotes(b.edges, snap.edges, snap);
     await saveBoard();
+    scheduleOplogFlush();
   };
 
   // The round-trip half of the wedge: whatever the watcher reports, apply
