@@ -336,38 +336,37 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
     if (holder !== undefined) {
       const b = boardOf(holder.boardPath);
       if (b !== null) {
-        const fileOf = (id: string): string | undefined => {
-          const onHolder = b.nodes.find(
-            (n) => n.id === id && n.type === "file",
-          );
-          if (onHolder?.type === "file") return onHolder.file;
+        // Tri-state: string = file node resolved; null = node exists but
+        // is not a file node (key must drop); undefined = endpoint
+        // dangles - the denorm is a fossil, kept untouched and never a
+        // rewrite (convergence, DATA-MODEL denorm rule).
+        const fileOf = (id: string): string | null | undefined => {
+          const onHolder = b.nodes.find((n) => n.id === id);
+          if (onHolder !== undefined)
+            return onHolder.type === "file" ? onHolder.file : null;
           for (const bp of scan.boards.keys()) {
             const other = boardOf(bp);
-            const found = other?.nodes.find(
-              (n) => n.id === id && n.type === "file",
-            );
-            if (found?.type === "file") return found.file;
+            const found = other?.nodes.find((n) => n.id === id);
+            if (found !== undefined)
+              return found.type === "file" ? found.file : null;
           }
           return undefined;
         };
         const ff = fileOf(note.frontmatter.from);
         const tf = fileOf(note.frontmatter.to);
+        const fm = { ...note.frontmatter };
+        if (ff === null) delete fm["from-file"];
+        else if (ff !== undefined) fm["from-file"] = ff;
+        if (tf === null) delete fm["to-file"];
+        else if (tf !== undefined) fm["to-file"] = tf;
         if (
-          ff !== note.frontmatter["from-file"] ||
-          tf !== note.frontmatter["to-file"]
+          fm["from-file"] !== note.frontmatter["from-file"] ||
+          fm["to-file"] !== note.frontmatter["to-file"]
         ) {
-          const fixed: LinkNote = {
-            ...note,
-            frontmatter: {
-              ...note.frontmatter,
-              ...(ff !== undefined ? { "from-file": ff } : {}),
-              ...(tf !== undefined ? { "to-file": tf } : {}),
-            },
-          };
           steps.push({
             op: "write-atomic",
             path: notePath,
-            content: serializeLinkNote(fixed),
+            content: serializeLinkNote({ ...note, frontmatter: fm }),
           });
         }
         // Edge label denorm: note `type` -> board edge `label` (FR-204).

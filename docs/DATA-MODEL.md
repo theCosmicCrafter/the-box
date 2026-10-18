@@ -299,6 +299,12 @@ for each note:
           default board) with note's (from,to) endpoints   [logged]
   if from-file/to-file denorms stale:
       → refresh denorms from board node → file mapping     [silent]
+      - endpoint resolves to a file node (any board): set *-file
+      - endpoint resolves to a non-file node: drop the *-file key
+      - endpoint dangles (node absent everywhere): leave the denorm
+        untouched - it is a fossil of the last verified truth, and
+        reconcile cannot verify it. (Convergence: a stale denorm on a
+        dangling endpoint must not emit a write every pass.)
 
 for each board node:
   if node.file missing on disk:

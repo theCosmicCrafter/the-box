@@ -96,6 +96,7 @@ declare global {
         root: string,
       ) => Promise<{ ok: boolean; error?: string }>;
       onWorkspaceChanged: (cb: (e: WorkspaceChanged) => void) => () => void;
+      requestSync: () => Promise<void>;
       readFile: (root: string, rel: string) => Promise<string | null>;
       writeFileAtomic: (
         root: string,
@@ -1053,7 +1054,7 @@ export function App() {
   useEffect(() => {
     const api = window.box;
     if (!api) return;
-    return api.onWorkspaceChanged((e) => {
+    const un = api.onWorkspaceChanged((e) => {
       const s = useBoxStore.getState();
       setFiles(e.files);
       s.setProblems(e.problems.map(fmtProblem));
@@ -1109,6 +1110,7 @@ export function App() {
         setNoteStale(true);
       }
     });
+    return un;
   }, [edgeNote?.path]);
 
   // I-1: edge draw -> link note written first, board second.

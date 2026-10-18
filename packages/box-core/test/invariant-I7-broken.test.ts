@@ -140,4 +140,99 @@ describe("invariant-I7-broken", () => {
     expect(report.plan.steps.filter((s) => s.op === "trash")).toHaveLength(0);
     expect(report.plan.steps).toHaveLength(0);
   });
+
+  it("dangling endpoints keep stale denorms as fossils without rewrite loops", () => {
+    // Regression: a dangling edge whose note carried from-file/to-file
+    // denorms used to emit an identical write-atomic every reconcile pass -
+    // the loop never converged. The fix makes fileOf tri-state: unresolved
+    // endpoints keep the fossil denorm and produce no step.
+    const EDGE_DANGLE_BOTH = "9999999999999999";
+    const EDGE_GROUP = "aaaaaaaaaaaaaaaa";
+    const NOTE_DANGLE = `link-${EDGE_DANGLE_BOTH}.md`;
+    const NOTE_GROUP = `link-${EDGE_GROUP}.md`;
+    const board = parseBoard(
+      serializeBoard({
+        "box-format": "box.canvas/1",
+        nodes: [
+          {
+            id: "n-bbb222",
+            type: "file",
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 150,
+            file: "present.md",
+          },
+          {
+            id: "n-grp1",
+            type: "group",
+            x: 300,
+            y: 0,
+            width: 400,
+            height: 300,
+          },
+        ],
+        edges: [
+          {
+            id: EDGE_DANGLE_BOTH,
+            fromNode: "n-gone1",
+            toNode: "n-gone2",
+            toEnd: "arrow",
+            "box-link": NOTE_DANGLE,
+          },
+          {
+            id: EDGE_GROUP,
+            fromNode: "n-bbb222",
+            toNode: "n-grp1",
+            toEnd: "arrow",
+            "box-link": NOTE_GROUP,
+          },
+        ],
+      }),
+      BP,
+    ).value!;
+
+    const nDangle = makeNote(
+      EDGE_DANGLE_BOTH,
+      "n-gone1",
+      "n-gone2",
+      "stale-a.md",
+      "stale-b.md",
+    );
+    const nGroup = makeNote(
+      EDGE_GROUP,
+      "n-bbb222",
+      "n-grp1",
+      "present.md",
+      "stale-c.md",
+    );
+
+    const scan: WorkspaceScan = {
+      boards: new Map([[BP, { value: board, problems: [] }]]),
+      notes: new Map([
+        [NOTE_DANGLE, { value: nDangle, problems: [] }],
+        [NOTE_GROUP, { value: nGroup, problems: [] }],
+      ]),
+      files: new Set(["present.md", NOTE_DANGLE, NOTE_GROUP]),
+      tombstones: new Set(),
+      knownNotes: new Set([EDGE_DANGLE_BOTH, EDGE_GROUP]),
+    };
+
+    const report = reconcile(scan);
+
+    // The dangling edge emits NO write - its stale denorms are fossils.
+    const writes = report.plan.steps.filter(
+      (s) => s.op === "write-atomic" && s.path === NOTE_DANGLE,
+    );
+    expect(writes).toHaveLength(0);
+
+    // The group endpoint resolves but is not a file node - its stale
+    // to-file key is dropped in one converging write.
+    const gWrites = report.plan.steps.filter(
+      (s) => s.op === "write-atomic" && s.path === NOTE_GROUP,
+    );
+    expect(gWrites).toHaveLength(1);
+    expect(gWrites[0]!.content).not.toContain("to-file");
+    expect(gWrites[0]!.content).toContain("from-file: present.md");
+  });
 });

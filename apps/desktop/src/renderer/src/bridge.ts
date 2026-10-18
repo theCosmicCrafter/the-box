@@ -8,7 +8,7 @@
 import type { Delta, ProblemItem } from "@box/core";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
-import { onWorkspaceChanged, watchSyncSession } from "./sync.js";
+import { onWorkspaceChanged, requestSync, watchSyncSession } from "./sync.js";
 
 export interface WorkspaceFile {
   path: string;
@@ -63,6 +63,7 @@ export async function installBoxBridge(): Promise<void> {
       watchSyncSession(root),
     onWorkspaceChanged: (cb: (e: WorkspaceChanged) => void) =>
       onWorkspaceChanged(cb),
+    requestSync: (): Promise<void> => requestSync(),
     readFile: (root: string, rel: string): Promise<string | null> =>
       invoke("fs_read", { root, rel }),
     writeFileAtomic: (

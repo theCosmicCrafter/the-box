@@ -122,6 +122,12 @@ async function execStep(wsRoot: string, step: WriteStep) {
   });
 }
 
+/** Trigger one reconcile pass outside the watcher path (e.g. at open, so
+ *  broken edges/notes surface before the first disk change). */
+export async function requestSync(): Promise<void> {
+  await runSync();
+}
+
 async function runSync(): Promise<void> {
   const wsRoot = root;
   if (wsRoot === null) return;
@@ -184,7 +190,14 @@ async function runSync(): Promise<void> {
       );
       prev = snapshot(files);
 
-      if (deltas.length > 0 || changedPaths.size > 0 || pass > 0) {
+      if (
+        deltas.length > 0 ||
+        changedPaths.size > 0 ||
+        pass > 0 ||
+        report.problems.length > 0 ||
+        report.brokenNodes.length > 0 ||
+        report.brokenEdges.length > 0
+      ) {
         const event: WorkspaceChanged = {
           files,
           deltas,
@@ -220,6 +233,10 @@ export async function watchSyncSession(
   );
   root = wsRoot;
   unlisten = await listen("box:fs-dirty", () => void runSync());
+  // First reconcile on open: R-E/R-F problems and broken sets surface
+  // before any disk change. Deferred so every caller-side listener
+  // (React mount effects) has already subscribed.
+  queueMicrotask(() => void runSync());
   return { ok: true };
 }
 
