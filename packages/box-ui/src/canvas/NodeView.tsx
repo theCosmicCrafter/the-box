@@ -723,6 +723,15 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
       ) : (
         <div className="node-label">{label(node)}</div>
       )}
+      {node.type === "group" &&
+        typeof node["box-region"] === "object" &&
+        node["box-region"] !== null && (
+          <div className="region-badge" aria-hidden>
+            {(node["box-region"] as { locked?: boolean }).locked === true
+              ? "region · locked"
+              : "region"}
+          </div>
+        )}
       {node.type === "file" &&
         props.ink !== undefined &&
         props.ink.length > 0 && (

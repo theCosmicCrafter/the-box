@@ -1523,6 +1523,22 @@ button:hover {
   border-style: solid;
 }
 
+/* ADR-0008 region tag: corner badge marking a parameterized group. */
+.region-badge {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e8b931;
+  background: rgba(232, 185, 49, 0.12);
+  border: 1px solid rgba(232, 185, 49, 0.35);
+  border-radius: 3px;
+  padding: 1px 5px;
+  pointer-events: none;
+}
+
 /* Re-route handles: separate svg rendered after the node DOM so they sit
    above nodes (the anchor is on a node's border; inside .edge-layer the
    node element covers them and they can't be grabbed). */

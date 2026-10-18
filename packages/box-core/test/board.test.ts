@@ -98,6 +98,60 @@ describe("parseBoard", () => {
     const r = parseBoard(JSON.stringify(bad));
     expect(r.problems.some((p) => p.detail.includes("PathRel"))).toBe(true);
   });
+
+  it("flags malformed box-region but tolerates valid regions (ADR-0008)", () => {
+    const group = {
+      id: "n-region01",
+      type: "group",
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      label: "Arena",
+    };
+    const ok = parseBoard(
+      JSON.stringify({
+        ...MINIMAL,
+        nodes: [
+          { ...group, "box-region": { v: 1, locked: true, params: { a: 1 } } },
+        ],
+        edges: [],
+      }),
+    );
+    expect(ok.problems).toHaveLength(0);
+    expect(ok.value?.nodes[0]?.["box-region"]).toEqual({
+      v: 1,
+      locked: true,
+      params: { a: 1 },
+    });
+    const badShape = parseBoard(
+      JSON.stringify({
+        ...MINIMAL,
+        nodes: [{ ...group, "box-region": "locked" }],
+        edges: [],
+      }),
+    );
+    expect(badShape.problems.some((p) => p.detail.includes("box-region"))).toBe(
+      true,
+    );
+    const badVer = parseBoard(
+      JSON.stringify({
+        ...MINIMAL,
+        nodes: [{ ...group, "box-region": { v: 99 } }],
+        edges: [],
+      }),
+    );
+    expect(badVer.problems.some((p) => p.detail.includes(".v"))).toBe(true);
+    // Non-group nodes ignore the key entirely.
+    const onFile = parseBoard(
+      JSON.stringify({
+        ...MINIMAL,
+        nodes: [{ ...MINIMAL.nodes[0]!, "box-region": "junk" }],
+        edges: [],
+      }),
+    );
+    expect(onFile.problems).toHaveLength(0);
+  });
 });
 
 describe("serializeBoard", () => {

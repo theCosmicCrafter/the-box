@@ -1468,6 +1468,44 @@ export function App() {
         },
       );
     } else {
+      if (node.type === "group") {
+        // ADR-0008 regions: a group carrying `box-region` is a named zone
+        // with parameters. label=region name, locked=children ignore drags.
+        const region = node["box-region"] as
+          { v?: number; locked?: boolean } | undefined;
+        if (region === undefined) {
+          items.push({
+            label: "Make region",
+            icon: "box",
+            onPick: () => {
+              updateNodeC(node.id, { "box-region": { v: 1, locked: false } });
+              void saveBoard();
+            },
+          });
+        } else {
+          items.push(
+            {
+              label:
+                region.locked === true ? "Unlock children" : "Lock children",
+              icon: "move",
+              onPick: () => {
+                updateNodeC(node.id, {
+                  "box-region": { ...region, locked: region.locked !== true },
+                });
+                void saveBoard();
+              },
+            },
+            {
+              label: "Remove region",
+              icon: "file",
+              onPick: () => {
+                updateNodeC(node.id, { "box-region": undefined });
+                void saveBoard();
+              },
+            },
+          );
+        }
+      }
       items.push({
         label: "Remove from canvas",
         icon: "file",

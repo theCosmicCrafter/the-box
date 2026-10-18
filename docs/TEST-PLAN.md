@@ -339,6 +339,20 @@ mode "off" returns to passthrough (0/1); the pref persisted to
 is on-demand via a rAF tick against `__boxSpatial` (debug handle added
 for the harness). `fileIcon` gained .ink.svg -> pen and .svg -> image.
 
+Live-verified 2026-10-17 (ninth pass, release build): ADR-0008 regions -
+context menu on a group offers Make region / Lock|Unlock children /
+Remove region; "region"/"region . locked" badge renders on the group;
+box-region {v,locked} round-trips to .box.canvas and survives relaunch.
+Locked semantics: a selected child inside a locked region ignores
+drags and arrow nudges (position unchanged on both), while dragging
+the region itself carries members by the identical delta. Carry bug
+fixed live: membership used to re-check live bounds per frame, so a
+fast drag outran members and stranded one partially outside the edge -
+membership is now snapshotted at gesture start (carryIdsRef cleared on
+commit); re-test moved group -12923,-8420 and both members by exactly
+that delta, still inside. board.test.ts covers box-region loose
+validation (object shape, v, non-group tolerance) - 12 pass.
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

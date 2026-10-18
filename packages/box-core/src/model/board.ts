@@ -101,6 +101,28 @@ function nodeProblems(
       });
     }
   }
+  if (n["type"] === "group") {
+    // ADR-0008 / DATA-MODEL §2.5: box-region validates loosely - a wrong-
+    // shaped value is a problem item, never fatal to the board.
+    const region = n["box-region"];
+    if (region !== undefined && !isObj(region)) {
+      problems.push({
+        kind: "malformed-board",
+        path,
+        detail: `${at}.box-region not an object: ${String(region)}`,
+      });
+    } else if (
+      isObj(region) &&
+      region["v"] !== undefined &&
+      region["v"] !== 1
+    ) {
+      problems.push({
+        kind: "malformed-board",
+        path,
+        detail: `${at}.box-region.v unsupported: ${String(region["v"])}`,
+      });
+    }
+  }
   const placement = n["box-placement"];
   if (placement !== undefined && !isObj(placement)) {
     problems.push({

@@ -90,10 +90,29 @@ node pointing at a `.md` - text nodes are for quick labels only.
 
 ### 2.5 `type: "link"` / `type: "group"` nodes
 
-Spec 1.0 fields only (`url`; `label`/`background`/`backgroundStyle`
-∈ `cover|ratio|repeat`). Group containment is spatial (node center inside
-group bounds), matching the donor convention (`node_in_bounds` in
-`canvas.py:480`).
+Spec 1.0 fields plus the optional `box-region` key (`url`;
+`label`/`background`/`backgroundStyle` ∈ `cover|ratio|repeat`). Group
+containment is spatial (node center inside group bounds), matching the
+donor convention (`node_in_bounds` in `canvas.py:480`).
+
+#### `box-region` record (ADR-0008)
+
+A group carrying `box-region` is a **region**: a named zone with per-region
+config. Still a spec group to every other reader.
+
+```json
+"box-region": { "v": 1, "locked": false, "params": {} }
+```
+
+| field    | type   | required | semantics                                                                    |
+| -------- | ------ | -------- | ---------------------------------------------------------------------------- |
+| `v`      | int    | yes      | schema version; currently 1                                                  |
+| `locked` | bool   | no       | children ignore drags/marquee-moves/nudges; region itself still carries them |
+| `params` | object | no       | opaque bag preserved verbatim; view filters and Stage-4 generation params    |
+
+Region name is spec `label`; tint is spec `color`. Writers preserve unknown
+keys inside `box-region` (forward tolerance); board code never interprets
+`params` contents.
 
 ### 2.6 `box-placement` record
 

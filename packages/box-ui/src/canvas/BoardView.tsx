@@ -254,6 +254,28 @@ export function BoardView(props: BoardViewProps) {
     return null;
   };
 
+  // ADR-0008 locked regions: a non-group node whose center sits inside a
+  // region with locked:true cannot move on its own - drags, marquee
+  // multi-drags, and nudges ignore it. A dragged region still carries its
+  // members (the carry block in onMove skips this check).
+  // Members carried by an in-flight group drag; snapshotted at gesture
+  // start so fast drags can't outrun members at the region edge.
+  const carryIdsRef = useRef<Set<string> | null>(null);
+
+  const lockOwner = (n: CanvasNode): string | null => {
+    if (n.type === "group") return null;
+    const cx = n.x + n.width / 2;
+    const cy = n.y + n.height / 2;
+    for (const g of propsRef.current.board.nodes) {
+      if (g.type !== "group") continue;
+      const r = g["box-region"] as { locked?: boolean } | undefined;
+      if (r?.locked !== true) continue;
+      if (cx >= g.x && cx <= g.x + g.width && cy >= g.y && cy <= g.y + g.height)
+        return g.id;
+    }
+    return null;
+  };
+
   const nodeHandlers = useMemo(() => {
     return {
       onSelect: (id: string, additive: boolean) => {
@@ -275,6 +297,7 @@ export function BoardView(props: BoardViewProps) {
         const cur = propsRef.current;
         const dragged = cur.board.nodes.find((n) => n.id === id);
         if (!dragged) return;
+        if (lockOwner(dragged) !== null) return;
         // Group move: when a selected node is dragged, every other selected
         // node travels by the same delta (standard canvas-app behavior).
         const dx = x - dragged.x;
@@ -284,31 +307,46 @@ export function BoardView(props: BoardViewProps) {
           for (const oid of selIds) {
             if (oid === id) continue;
             const n = cur.board.nodes.find((m) => m.id === oid);
-            if (n) cur.onMove?.(oid, n.x + dx, n.y + dy);
+            if (n && lockOwner(n) === null)
+              cur.onMove?.(oid, n.x + dx, n.y + dy);
           }
         }
-        // Spatial groups (JSON Canvas): dragging a group drags every node
-        // whose center sits inside the group's pre-drag bounds.
+        // Spatial groups (JSON Canvas): dragging a group drags every member.
+        // Membership is snapshotted once at gesture start - re-checking live
+        // bounds per frame lets a fast drag outrun a member and strand it
+        // just outside the region edge.
         if (dragged.type === "group") {
-          for (const n of cur.board.nodes) {
-            if (n.id === id || n.type === "group") continue;
-            const cx = n.x + n.width / 2;
-            const cy = n.y + n.height / 2;
-            if (
-              cx >= dragged.x &&
-              cx <= dragged.x + dragged.width &&
-              cy >= dragged.y &&
-              cy <= dragged.y + dragged.height &&
-              !(selIds.size > 1 && selIds.has(n.id))
-            )
-              cur.onMove?.(n.id, n.x + dx, n.y + dy);
+          if (carryIdsRef.current === null) {
+            carryIdsRef.current = new Set(
+              cur.board.nodes
+                .filter((n) => {
+                  if (n.id === id || n.type === "group") return false;
+                  const cx = n.x + n.width / 2;
+                  const cy = n.y + n.height / 2;
+                  return (
+                    cx >= dragged.x &&
+                    cx <= dragged.x + dragged.width &&
+                    cy >= dragged.y &&
+                    cy <= dragged.y + dragged.height
+                  );
+                })
+                .map((n) => n.id),
+            );
+          }
+          for (const nid of carryIdsRef.current) {
+            if (selIds.size > 1 && selIds.has(nid)) continue;
+            const n = cur.board.nodes.find((m) => m.id === nid);
+            if (n) cur.onMove?.(n.id, n.x + dx, n.y + dy);
           }
         }
         cur.onMove?.(id, x, y);
       },
       onResize: (id: string, w: number, h: number) =>
         propsRef.current.onResize?.(id, w, h),
-      onCommit: () => propsRef.current.onCommit?.(),
+      onCommit: () => {
+        carryIdsRef.current = null;
+        propsRef.current.onCommit?.();
+      },
       onTextCommit: (id: string, t: string) =>
         propsRef.current.onTextCommit?.(id, t),
       onFileCommit: (id: string, t: string) =>
@@ -488,7 +526,8 @@ export function BoardView(props: BoardViewProps) {
           e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
         for (const id of sel) {
           const n = props.board.nodes.find((m) => m.id === id);
-          if (n) props.onMove?.(id, n.x + dx, n.y + dy);
+          if (n && lockOwner(n) === null)
+            props.onMove?.(id, n.x + dx, n.y + dy);
         }
         // Held-arrow repeats coalesce into one board write after the burst.
         if (nudgeTimer.current !== null) clearTimeout(nudgeTimer.current);
