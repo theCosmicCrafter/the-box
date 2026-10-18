@@ -47,8 +47,10 @@ reopen with index deleted → identical state; Christian does it unaided.
   fits files-are-truth) - deferred until the op vocabulary stabilizes
 - [x] Edge re-route: drag a selected edge's endpoint onto another node;
       board + link-note denorms retarget atomically, empty-drop cancels
-- [ ] Regions with parameters: group/frame nodes carry per-region config,
-      generalizing the Box holding area (T-14, Ferrate biome pattern)
+- [x] Regions with parameters (ADR-0008): group nodes carry `box-region`
+      {v,locked,params} - locked children ignore drags/nudges, region
+      carries members; params bag reserved for Stage-4 (T-14, Ferrate
+      biome pattern)
 - [~] Ink smoothing polish: stroke quality over feature count (T-14,
   InfinitiCanvas/perfect-freehand evidence) - perfect-freehand live;
   pressure, color, size, stroke-move edit shipped
