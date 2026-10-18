@@ -16,7 +16,7 @@ import {
   newNodeId,
 } from "./ids.js";
 import { serializeLinkNote } from "./linkNote.js";
-import type { Board, CanvasNode } from "./types.js";
+import type { Board, CanvasNode, LinkNoteFrontmatter } from "./types.js";
 import { BOARD_FORMAT, LINK_NOTE_FORMAT } from "./types.js";
 
 export interface SpecImport {
@@ -106,7 +106,7 @@ export function importSpecCanvas(
     const from = e["fromNode"];
     const to = e["toNode"];
     if (typeof from !== "string" || typeof to !== "string") continue;
-    const fm: import("./types.js").LinkNoteFrontmatter = {
+    const fm: LinkNoteFrontmatter = {
       "box-format": LINK_NOTE_FORMAT,
       "box-edge": e["id"],
       from,

@@ -5,67 +5,67 @@
 // on disk (self-write echoes compare identical and are skipped).
 
 import type {
-  CanvasEdge,
-  CanvasNode,
-  Delta,
-  InkStroke,
-  LinkNote,
-  ProblemItem,
-  Side,
-  WritePlan,
+    CanvasEdge,
+    CanvasNode,
+    Delta,
+    InkStroke,
+    LinkNote,
+    ProblemItem,
+    Side,
+    WritePlan,
 } from "@box/core";
 import {
-  baseName,
-  BOARD_FORMAT,
-  createEdgePlan,
-  deleteEdgePlan,
-  fileKind,
-  hasScaffoldDirs,
-  importSpecCanvas,
-  isPathRel,
-  linkNoteName,
-  missingScaffoldFiles,
-  newNodeId,
-  parseBoard,
-  parseInkSvg,
-  parseLinkNote,
-  serializeBoard,
-  serializeInkSvg,
-  serializeLinkNote,
+    baseName,
+    BOARD_FORMAT,
+    createEdgePlan,
+    deleteEdgePlan,
+    fileKind,
+    hasScaffoldDirs,
+    importSpecCanvas,
+    isPathRel,
+    linkNoteName,
+    missingScaffoldFiles,
+    newNodeId,
+    parseBoard,
+    parseInkSvg,
+    parseLinkNote,
+    serializeBoard,
+    serializeInkSvg,
+    serializeLinkNote,
 } from "@box/core";
 import type {
-  Camera,
-  InkPoint,
-  MenuItem,
-  MenuSpec,
-  WorkspaceFile,
+    Camera,
+    InkPoint,
+    MenuItem,
+    MenuSpec,
+    WorkspaceFile,
 } from "@box/ui";
 import {
-  BoardView,
-  BoxPanel,
-  ContextMenu,
-  DEFAULT_CAMERA,
-  FileTree,
-  gridPlaceRect,
-  Icon,
-  ImageInspector,
-  NotePanel,
-  pathToPolygon,
-  pointInPolygon,
-  QuickOpen,
-  Ribbon,
-  screenToWorld,
-  strokeToPath,
-  translatePath,
-  useBoxStore,
+    BoardView,
+    BoxPanel,
+    ContextMenu,
+    DEFAULT_CAMERA,
+    FileTree,
+    gridPlaceRect,
+    Icon,
+    ImageInspector,
+    NotePanel,
+    pathToPolygon,
+    pointInPolygon,
+    QuickOpen,
+    Ribbon,
+    screenToWorld,
+    strokeToPath,
+    translatePath,
+    useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
 import {
-  setSpatialAudioMode,
-  spatialTick,
-  type SpatialAudioMode,
+    setSpatialAudioMode,
+    spatialTick,
+    type SpatialAudioMode,
 } from "./spatialAudio.js";
 
 interface WorkspaceChanged {
@@ -129,6 +129,9 @@ declare global {
         b64: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>;
       copyFile: (
+        rel: string,
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+      fileIcon: (
         rel: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>;
       pickFiles: (imagesOnly: boolean) => Promise<string[]>;
@@ -297,6 +300,12 @@ export function App() {
     return boxPlatform === "windows"
       ? `https://box.localhost/f/${enc}${v}`
       : `box://f/${enc}${v}`;
+  };
+
+  // Typed tiles get the OS-associated icon (cached PNG under .box/icons).
+  const resolveIcon = async (rel: string) => {
+    const r = await window.box?.fileIcon(rel);
+    return r?.ok && r.path ? resolveMedia(r.path) : null;
   };
 
   const open = async () => {
@@ -1776,6 +1785,7 @@ export function App() {
             onFileCommit={(id, t) => void commitFileEdit(id, t)}
             onFileEditCancel={() => setFileEdit(null)}
             resolveMedia={resolveMedia}
+            resolveIcon={resolveIcon}
             onMove={moveNodeC}
             onResize={(id, w, h) => updateNodeC(id, { width: w, height: h })}
             onCommit={() => void saveBoard()}

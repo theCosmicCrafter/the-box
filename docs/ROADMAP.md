@@ -71,8 +71,10 @@ measured via `tools/perf-probe.mjs` on a 500-node board.**
   position vs viewport, pref persisted)
 - [x] Invariants I-6..I-9 green; problem-items UI for malformed notes
       (clickable rows locate+select the offending node)
-- [ ] OS-native icon fallback for typed tiles via `app.getFileIcon` IPC
-      (T-14, Eagle native.js analog: blend/c4d/dwg and friends)
+- [x] OS-native icon fallback for typed tiles (T-14, Eagle native.js
+      analog): `file_icon` IPC -> systemicons (SHGetFileInfo/NSWorkspace/GTK)
+      -> PNG cached per-extension under .box/icons (derived, rebuildable);
+      exe/lnk/ico cache per-path. Live-verified on release build.
 - [ ] Deferred parser queue, gated on a real file needing it: ag-psd (PSD),
       camera-RAW embedded-JPEG extraction, HEIC/JXL decode (T-9/T-14)
 - [x] Windowed/chunked board processing for very large boards (T-14,

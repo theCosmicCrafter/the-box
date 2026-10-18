@@ -185,13 +185,17 @@ fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 fn write_atomic(root: &Path, rel: &str, content: &str) -> Result<(), String> {
+    write_atomic_bytes(root, rel, content.as_bytes())
+}
+
+fn write_atomic_bytes(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String> {
     let abs = resolve_inside(root, rel).ok_or("path escapes workspace")?;
     let tmp_dir = root.join(".box").join("tmp");
     fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
     let tmp = tmp_dir.join(format!("w-{}.tmp", uuid()));
     {
         let mut f = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        std::io::Write::write_all(&mut f, content.as_bytes()).map_err(|e| e.to_string())?;
+        std::io::Write::write_all(&mut f, bytes).map_err(|e| e.to_string())?;
         f.sync_all().map_err(|e| e.to_string())?;
     }
     if let Some(parent) = abs.parent() {
@@ -828,6 +832,69 @@ fn fs_copy_inner(root: &Path, rel: &str) -> Result<String, String> {
     create_new(root, parent, &format!("{stem}-copy"), &ext, &bytes)
 }
 
+// OS-native icon fallback for typed tiles (unparseable binaries like
+// .blend/.c4d/.dwg get the shell-associated icon instead of a generic
+// glyph). PNGs cache under .box/icons - derived data, safe to delete.
+// Key is FNV-1a over the rel path: deterministic across runs (std's
+// DefaultHasher is not) and collision-safe enough for a rebuildable cache.
+fn fnv64(s: &str) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn file_icon_inner(root: &Path, rel: &str) -> Result<String, String> {
+    if !is_path_rel(rel) {
+        return Err("bad path".into());
+    }
+    let src = resolve_inside(root, rel).ok_or("bad path")?;
+    if !src.is_file() {
+        return Err("not a file".into());
+    }
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let png = systemicons::get_icon(name, 64).map_err(|e| format!("icon: {e:?}"))?;
+    if png.len() < 8 || &png[..4] != b"\x89PNG" {
+        return Err("icon: not a png".into());
+    }
+    // Shell association is per-extension - cache per ext so 500 same-type
+    // files share one PNG. exe/lnk/ico embed their own icon: per-path.
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_lowercase());
+    let per_file = matches!(ext.as_deref(), Some("exe" | "lnk" | "ico"));
+    let key = if per_file {
+        rel
+    } else {
+        ext.as_deref().unwrap_or(name)
+    };
+    let dir = root.join(".box").join("icons");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let out_rel = format!(".box/icons/icon-{:016x}.png", fnv64(key));
+    let out = resolve_inside(root, &out_rel).ok_or("bad path")?;
+    if !out.exists() {
+        write_atomic_bytes(root, &out_rel, &png)?;
+    }
+    Ok(out_rel)
+}
+
+#[tauri::command]
+fn file_icon(state: State<'_, AppState>, rel: String) -> FileResult {
+    let run = session_root(&state).and_then(|root| file_icon_inner(&root, &rel).map_err(cmd_err));
+    match run {
+        Ok(path) => FileResult {
+            ok: true,
+            path: Some(path),
+            error: None,
+        },
+        Err(e) => FileResult {
+            ok: false,
+            path: None,
+            error: e.error,
+        },
+    }
+}
+
 #[tauri::command]
 fn fs_copy(state: State<'_, AppState>, rel: String) -> FileResult {
     let run = session_root(&state).and_then(|root| fs_copy_inner(&root, &rel).map_err(cmd_err));
@@ -1024,6 +1091,7 @@ pub fn run() {
             new_text_file,
             new_binary_file,
             fs_copy,
+            file_icon,
             pick_files,
         ])
         .run(tauri::generate_context!())

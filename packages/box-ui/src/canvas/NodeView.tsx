@@ -14,13 +14,13 @@ import type { Camera } from "./camera.js";
 import { DEFAULT_CAMERA, screenToWorld } from "./camera.js";
 import { pickStroke } from "./ink.js";
 import {
-  CodeView,
-  HtmlPreview,
-  ModelPreview,
-  PalettePreview,
-  TexturePreview,
-  WaveformPreview,
-  ZipPreview,
+    CodeView,
+    HtmlPreview,
+    ModelPreview,
+    PalettePreview,
+    TexturePreview,
+    WaveformPreview,
+    ZipPreview,
 } from "./previews.js";
 
 const SIDES: Side[] = ["top", "right", "bottom", "left"];
@@ -64,6 +64,8 @@ export interface NodeViewProps {
   culled?: boolean | undefined;
   /** Resolves a workspace-relative file path to a displayable URL. */
   resolveMedia?: ((rel: string) => string) | undefined;
+  /** OS-native icon fallback for typed tiles: rel -> media URL or null. */
+  resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
   /** Text excerpt for document file nodes (loaded by the platform). */
   excerpt?: string | undefined;
   /** Byte size for typed tiles (loaded by the platform). */
@@ -119,17 +121,44 @@ function fmtSize(n: number): string {
 }
 
 /** Eagle-style typed tile: the file is identified even with no preview. */
+/** path -> shared in-flight/resolved icon lookup (one OS call per path). */
+const iconCache = new Map<string, Promise<string | null>>();
+
 function TypedTile(props: {
   kind: FileKind;
   path: string;
   size?: number | undefined;
+  resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
 }) {
   const ext = props.path.includes(".")
     ? (props.path.split(".").pop() ?? "?").toUpperCase()
     : "?";
+  const [icon, setIcon] = useState<string | null>(null);
+  useEffect(() => {
+    if (!props.resolveIcon) return;
+    // Every mount subscribes to the shared promise: a re-run effect (the
+    // prop is a fresh closure each render) re-subscribes and .then fires
+    // immediately on an already-resolved value - no suppressed setIcon.
+    let p = iconCache.get(props.path);
+    if (!p) {
+      p = props.resolveIcon(props.path);
+      iconCache.set(props.path, p);
+    }
+    let live = true;
+    p.then((url) => {
+      if (live && url) setIcon(url);
+    });
+    return () => {
+      live = false;
+    };
+  }, [props.path, props.resolveIcon]);
   return (
     <div className="node-tile">
-      <span className="node-tile-ext">{ext}</span>
+      {icon ? (
+        <img className="node-tile-icon" src={icon} alt="" draggable={false} />
+      ) : (
+        <span className="node-tile-ext">{ext}</span>
+      )}
       <span className="node-tile-kind">
         {props.kind}
         {props.size !== undefined ? ` · ${fmtSize(props.size)}` : ""}
@@ -218,6 +247,7 @@ function FileBody(props: {
   node: CanvasNode & { type: "file" };
   kind: FileKind;
   resolveMedia?: ((rel: string) => string) | undefined;
+  resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
   selected: boolean;
   excerpt?: string | undefined;
   fileSize?: number | undefined;
@@ -238,7 +268,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "video":
       /* tldraw + AnimRef precedent: video plays inline, muted+looping,
@@ -257,7 +292,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "audio":
       /* Heptabase audioCard precedent: a compact player chip. Waveform
@@ -283,7 +323,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "pdf":
       /* Chromium's PDFium viewer renders served PDFs in an iframe. */
@@ -293,7 +338,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "csv":
       return props.excerpt !== undefined ? (
@@ -305,7 +355,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "board":
       return props.excerpt !== undefined ? (
@@ -314,7 +369,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "font":
       return url !== undefined ? (
@@ -323,7 +383,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "html":
       /* Sandboxed: renders static layout, scripts stay off. */
@@ -333,7 +398,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "palette":
       return (
@@ -346,7 +416,12 @@ function FileBody(props: {
       return url !== undefined ? (
         <ZipPreview url={url} path={node.file} />
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "model3d":
       return url !== undefined ? (
@@ -355,13 +430,23 @@ function FileBody(props: {
             url={url}
             path={node.file}
             fallback={
-              <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+              <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
             }
           />
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "texture":
       return url !== undefined ? (
@@ -370,13 +455,23 @@ function FileBody(props: {
             url={url}
             path={node.file}
             fallback={
-              <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+              <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
             }
           />
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "code":
       return props.excerpt !== undefined ? (
@@ -385,7 +480,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     case "text":
       return props.excerpt !== undefined ? (
@@ -394,7 +494,12 @@ function FileBody(props: {
           {caption}
         </>
       ) : (
-        <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+        <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
       );
     default:
       /* "other" that sniffed as text gets the excerpt; binaries tile. */
@@ -405,7 +510,12 @@ function FileBody(props: {
         </>
       ) : (
         <>
-          <TypedTile kind={kind} path={node.file} size={props.fileSize} />
+          <TypedTile
+            kind={kind}
+            path={node.file}
+            size={props.fileSize}
+            resolveIcon={props.resolveIcon}
+          />
           {caption}
         </>
       );
@@ -700,6 +810,7 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
           node={node}
           kind={kind}
           resolveMedia={props.resolveMedia}
+          resolveIcon={props.resolveIcon}
           selected={props.selected}
           excerpt={props.excerpt}
           fileSize={props.fileSize}

@@ -365,6 +365,21 @@ still open it - in-place means one file, two readers). specImport.test
 covers remap/backing/preservation, idempotence, non-canvas rejection,
 and already-valid-id stability (108 core).
 
+Live-verified 2026-10-17 (eleventh pass, release build): OS-native
+icons on typed tiles - placed `model.blend` (model3d kind, unparseable);
+the tile resolved the shell-associated icon via `file_icon` IPC
+(systemicons -> SHGetFileInfoW), PNG cached at `.box/icons/icon-<fnv>.png`
+and served through box:// (200). Cache is per-EXTENSION (500 same-type
+files share one PNG; exe/lnk/ico embed their own icon so those stay
+per-path). Two bugs found live: (1) teardown race - a fresh `resolveIcon`
+closure each App render re-ran the effect and `live=false` suppressed
+setIcon; cache now stores the shared Promise and every mount subscribes
+(re-run resubscribes, resolved promise fires immediately). (2) per-path
+cache keying minted ~400 duplicate PNGs; keyed by extension now (2 files
+for the corpus). Icons appear in FileTree under .box/ by design (honest
+disk view); isBoxUserObject keeps them out of The Box panel. Rust test:
+file_icon_caches_png_and_rejects_bad_paths (19 Rust total).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

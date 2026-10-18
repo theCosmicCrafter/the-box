@@ -404,6 +404,24 @@ fn fs_copy_copies_never_overwrites_and_names_safely() {
 }
 
 #[test]
+fn file_icon_caches_png_and_rejects_bad_paths() {
+    let ws = tmpdir("icon");
+    fs::write(ws.join("doc.md"), b"md").unwrap();
+    // bad paths fail before touching the OS
+    assert!(file_icon_inner(&ws, "../evil").is_err());
+    assert!(file_icon_inner(&ws, "nope.xyz").is_err());
+    // a real file resolves to a cached PNG under .box/icons (or a clean
+    // error on hosts without shell association - CI-safe either way)
+    if let Ok(rel) = file_icon_inner(&ws, "doc.md") {
+        assert!(rel.starts_with(".box/icons/icon-") && rel.ends_with(".png"));
+        let bytes = fs::read(ws.join(&rel)).unwrap();
+        assert_eq!(&bytes[..4], b"\x89PNG");
+        // second call hits the cache and returns the same path
+        assert_eq!(file_icon_inner(&ws, "doc.md").unwrap(), rel);
+    }
+}
+
+#[test]
 fn create_new_handles_empty_ext_without_trailing_dot() {
     let ws = tmpdir("new-ext");
     let p = create_new(&ws, "", "dotless", "", b"x").unwrap();

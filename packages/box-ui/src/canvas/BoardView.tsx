@@ -40,6 +40,7 @@ export interface BoardViewProps {
   /** Parsed .ink.svg strokes per node id (platform loads sidecars). */
   inkByNodeId?: Map<string, InkStroke[]> | undefined;
   resolveMedia?: ((rel: string) => string) | undefined;
+  resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
   onMove?: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
   onCommit?: () => void;
@@ -773,6 +774,7 @@ export function BoardView(props: BoardViewProps) {
             broken={brokenNodes.has(n.id)}
             dropTarget={draft?.overId === n.id}
             resolveMedia={props.resolveMedia}
+            resolveIcon={props.resolveIcon}
             excerpt={
               n.type === "file" ? props.fileTexts?.get(n.file) : undefined
             }

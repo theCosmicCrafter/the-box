@@ -620,6 +620,14 @@ button:hover {
   letter-spacing: 0.06em;
 }
 
+.node-tile-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.5));
+}
+
 .node-font {
   position: absolute;
   inset: 18px 0 18px;

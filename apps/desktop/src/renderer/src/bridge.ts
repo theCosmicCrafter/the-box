@@ -101,6 +101,9 @@ export async function installBoxBridge(): Promise<void> {
       invoke("new_binary_file", { dir, stem, ext, b64 }),
     // Ctrl+D: copy a workspace file beside itself (`<stem>-copy[-N].<ext>`).
     copyFile: (rel: string): Promise<FileResult> => invoke("fs_copy", { rel }),
+    // OS-associated icon for a file, cached as .box/icons/*.png (derived).
+    fileIcon: (rel: string): Promise<FileResult> =>
+      invoke("file_icon", { rel }),
     pickFiles: (imagesOnly: boolean): Promise<string[]> =>
       invoke("pick_files", { imagesOnly }),
     // OS-level drag-drop (Tauri intercepts it - HTML5 dataTransfer drops
