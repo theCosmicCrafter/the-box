@@ -41,6 +41,7 @@ export interface BoardViewProps {
   inkByNodeId?: Map<string, InkStroke[]> | undefined;
   resolveMedia?: ((rel: string) => string) | undefined;
   resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
+  resolveThumb?: ((rel: string) => Promise<string | null>) | undefined;
   onMove?: (id: string, x: number, y: number) => void;
   onResize?: (id: string, w: number, h: number) => void;
   onCommit?: () => void;
@@ -775,6 +776,7 @@ export function BoardView(props: BoardViewProps) {
             dropTarget={draft?.overId === n.id}
             resolveMedia={props.resolveMedia}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
             excerpt={
               n.type === "file" ? props.fileTexts?.get(n.file) : undefined
             }

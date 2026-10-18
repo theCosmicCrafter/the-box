@@ -15,10 +15,15 @@ import { DEFAULT_CAMERA, screenToWorld } from "./camera.js";
 import { pickStroke } from "./ink.js";
 import {
     CodeView,
+    DecodedImage,
     HtmlPreview,
+    LutPreview,
     ModelPreview,
+    needsImageDecode,
     PalettePreview,
+    RawImage,
     TexturePreview,
+    VideoPreview,
     WaveformPreview,
     ZipPreview,
 } from "./previews.js";
@@ -66,6 +71,8 @@ export interface NodeViewProps {
   resolveMedia?: ((rel: string) => string) | undefined;
   /** OS-native icon fallback for typed tiles: rel -> media URL or null. */
   resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
+  /** Shell thumbnail fallback for typed tiles (video frames, codecs). */
+  resolveThumb?: ((rel: string) => Promise<string | null>) | undefined;
   /** Text excerpt for document file nodes (loaded by the platform). */
   excerpt?: string | undefined;
   /** Byte size for typed tiles (loaded by the platform). */
@@ -121,7 +128,7 @@ function fmtSize(n: number): string {
 }
 
 /** Eagle-style typed tile: the file is identified even with no preview. */
-/** path -> shared in-flight/resolved icon lookup (one OS call per path). */
+/** path -> shared thumb->icon lookup promise (one OS round per path). */
 const iconCache = new Map<string, Promise<string | null>>();
 
 function TypedTile(props: {
@@ -129,19 +136,28 @@ function TypedTile(props: {
   path: string;
   size?: number | undefined;
   resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
+  /** Shell thumbnail (Explorer preview frames, codec-installed types). */
+  resolveThumb?: ((rel: string) => Promise<string | null>) | undefined;
 }) {
   const ext = props.path.includes(".")
     ? (props.path.split(".").pop() ?? "?").toUpperCase()
     : "?";
   const [icon, setIcon] = useState<string | null>(null);
   useEffect(() => {
-    if (!props.resolveIcon) return;
+    if (!props.resolveThumb && !props.resolveIcon) return;
     // Every mount subscribes to the shared promise: a re-run effect (the
-    // prop is a fresh closure each render) re-subscribes and .then fires
+    // props are fresh closures each render) re-subscribes and .then fires
     // immediately on an already-resolved value - no suppressed setIcon.
     let p = iconCache.get(props.path);
     if (!p) {
-      p = props.resolveIcon(props.path);
+      const { resolveThumb, resolveIcon } = props;
+      p = (async () => {
+        if (resolveThumb) {
+          const u = await resolveThumb(props.path);
+          if (u) return u;
+        }
+        return resolveIcon ? await resolveIcon(props.path) : null;
+      })();
       iconCache.set(props.path, p);
     }
     let live = true;
@@ -151,7 +167,7 @@ function TypedTile(props: {
     return () => {
       live = false;
     };
-  }, [props.path, props.resolveIcon]);
+  }, [props.path, props.resolveThumb, props.resolveIcon]);
   return (
     <div className="node-tile">
       {icon ? (
@@ -248,6 +264,7 @@ function FileBody(props: {
   kind: FileKind;
   resolveMedia?: ((rel: string) => string) | undefined;
   resolveIcon?: ((rel: string) => Promise<string | null>) | undefined;
+  resolveThumb?: ((rel: string) => Promise<string | null>) | undefined;
   selected: boolean;
   excerpt?: string | undefined;
   fileSize?: number | undefined;
@@ -255,9 +272,34 @@ function FileBody(props: {
   const { node, kind } = props;
   const url = props.resolveMedia?.(node.file);
   const caption = <div className="node-caption">{baseName(node.file)}</div>;
+  const tile = (
+    <TypedTile
+      kind={kind}
+      path={node.file}
+      size={props.fileSize}
+      resolveIcon={props.resolveIcon}
+      resolveThumb={props.resolveThumb}
+    />
+  );
   switch (kind) {
-    case "image":
-      return url !== undefined ? (
+    case "image": {
+      // Chromium-native formats take <img>; tif/psd decode in JS; heic/jxl
+      // go straight to the shell-thumbnail lane (no decoder shipped).
+      const ext = node.file.slice(node.file.lastIndexOf(".") + 1).toLowerCase();
+      if (url === undefined) return tile;
+      if (ext === "heic" || ext === "heif" || ext === "jxl")
+        return (
+          <>
+            {tile}
+            {caption}
+          </>
+        );
+      return needsImageDecode(node.file) ? (
+        <>
+          <DecodedImage url={url} path={node.file} fallback={tile} />
+          {caption}
+        </>
+      ) : (
         <>
           <img
             className="node-media"
@@ -267,37 +309,38 @@ function FileBody(props: {
           />
           {caption}
         </>
-      ) : (
-        <TypedTile
-            kind={kind}
-            path={node.file}
-            size={props.fileSize}
-            resolveIcon={props.resolveIcon}
-          />
       );
-    case "video":
-      /* tldraw + AnimRef precedent: video plays inline, muted+looping,
-         so a board of clips reads at a glance without stealing audio. */
+    }
+    case "raw":
       return url !== undefined ? (
         <>
-          <video
-            className="node-media"
-            src={url}
-            muted
-            loop
-            autoPlay
-            playsInline
-            onPointerDown={(e) => e.stopPropagation()}
-          />
+          <RawImage url={url} path={node.file} fallback={tile} />
           {caption}
         </>
       ) : (
-        <TypedTile
-            kind={kind}
-            path={node.file}
-            size={props.fileSize}
-            resolveIcon={props.resolveIcon}
-          />
+        tile
+      );
+    case "lut":
+      return url !== undefined ? (
+        <>
+          <LutPreview url={url} path={node.file} fallback={tile} />
+          {caption}
+        </>
+      ) : (
+        tile
+      );
+    case "video":
+      /* tldraw + AnimRef precedent: video plays inline, muted+looping,
+         so a board of clips reads at a glance without stealing audio.
+         Codecs Chromium can't play (mkv/avi/prores) fall to the tile,
+         whose shell-thumb lane still shows a real frame. */
+      return url !== undefined ? (
+        <>
+          <VideoPreview url={url} path={node.file} fallback={tile} />
+          {caption}
+        </>
+      ) : (
+        tile
       );
     case "audio":
       /* Heptabase audioCard precedent: a compact player chip. Waveform
@@ -328,6 +371,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "pdf":
@@ -343,6 +387,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "csv":
@@ -360,6 +405,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "board":
@@ -374,6 +420,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "font":
@@ -388,6 +435,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "html":
@@ -403,6 +451,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "palette":
@@ -421,6 +470,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "model3d":
@@ -429,12 +479,14 @@ function FileBody(props: {
           <ModelPreview
             url={url}
             path={node.file}
+            resolveMedia={props.resolveMedia}
             fallback={
               <TypedTile
             kind={kind}
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
             }
           />
@@ -446,6 +498,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "texture":
@@ -460,6 +513,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
             }
           />
@@ -471,6 +525,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "code":
@@ -485,6 +540,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     case "text":
@@ -499,6 +555,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
       );
     default:
@@ -515,6 +572,7 @@ function FileBody(props: {
             path={node.file}
             size={props.fileSize}
             resolveIcon={props.resolveIcon}
+            resolveThumb={props.resolveThumb}
           />
           {caption}
         </>
@@ -811,6 +869,7 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
           kind={kind}
           resolveMedia={props.resolveMedia}
           resolveIcon={props.resolveIcon}
+          resolveThumb={props.resolveThumb}
           selected={props.selected}
           excerpt={props.excerpt}
           fileSize={props.fileSize}

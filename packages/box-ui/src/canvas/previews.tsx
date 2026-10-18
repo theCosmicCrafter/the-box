@@ -9,6 +9,15 @@
 import { baseName } from "@box/core";
 import { useEffect, useRef, useState } from "react";
 import type * as THREE_NS from "three";
+import type UTIFNS from "utif";
+import {
+    extractRawJpeg,
+    lutStrip,
+    parse3dl,
+    parseCube
+} from "./decodeMedia.js";
+
+type UtifModule = typeof UTIFNS;
 
 // ---------- shared async plumbing ----------
 
@@ -459,6 +468,8 @@ export function ModelPreview(props: {
   url: string;
   path: string;
   fallback?: React.ReactNode;
+  /** resolves workspace-rel paths - lets fbx/obj/dae find sibling textures. */
+  resolveMedia?: ((rel: string) => string) | undefined;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -492,18 +503,44 @@ export function ModelPreview(props: {
       sc.add(dir);
       const cam = new THREE.PerspectiveCamera(40, w / h, 0.01, 5000);
 
+      // Relative texture refs (fbx .mtl dae 3ds lwo) resolve against the
+      // model's workspace dir through box:// - the reason texture-less
+      // test models render gray while real ones show materials.
+      const mgr = new THREE.LoadingManager();
+      const baseDir = props.path.slice(0, props.path.lastIndexOf("/") + 1);
+      mgr.setURLModifier((u) => {
+        if (/^(?:blob:|data:|https?:|box:)/.test(u)) return u;
+        const rel = baseDir + u.replace(/^\.\//, "");
+        return props.resolveMedia?.(rel) ?? u;
+      });
+
       const load = async (): Promise<THREE_NS.Object3D> => {
         switch (ext) {
           case "glb":
           case "gltf": {
             const { GLTFLoader } =
               await import("three/examples/jsm/loaders/GLTFLoader.js");
-            return (await new GLTFLoader().loadAsync(props.url)).scene;
+            return (await new GLTFLoader(mgr).loadAsync(props.url)).scene;
           }
           case "obj": {
             const { OBJLoader } =
               await import("three/examples/jsm/loaders/OBJLoader.js");
-            return new OBJLoader().loadAsync(props.url);
+            const loader = new OBJLoader(mgr);
+            // .mtl sidecar next to the .obj carries materials+textures
+            const mtlName = props.path.slice(0, -4) + ".mtl";
+            try {
+              const { MTLLoader } =
+                await import("three/examples/jsm/loaders/MTLLoader.js");
+              const mtlUrl = props.resolveMedia?.(mtlName);
+              if (mtlUrl) {
+                const mats = await new MTLLoader(mgr).loadAsync(mtlUrl);
+                mats.preload();
+                loader.setMaterials(mats);
+              }
+            } catch {
+              // no sidecar or unreadable - untextured mesh is fine
+            }
+            return loader.loadAsync(props.url);
           }
           case "stl": {
             const { STLLoader } =
@@ -526,17 +563,64 @@ export function ModelPreview(props: {
           case "fbx": {
             const { FBXLoader } =
               await import("three/examples/jsm/loaders/FBXLoader.js");
-            return new FBXLoader().loadAsync(props.url);
+            return new FBXLoader(mgr).loadAsync(props.url);
           }
           case "dae": {
             const { ColladaLoader } =
               await import("three/examples/jsm/loaders/ColladaLoader.js");
-            return (await new ColladaLoader().loadAsync(props.url)).scene;
+            return (await new ColladaLoader(mgr).loadAsync(props.url)).scene;
           }
           case "3ds": {
             const { TDSLoader } =
               await import("three/examples/jsm/loaders/TDSLoader.js");
-            return new TDSLoader().loadAsync(props.url);
+            return new TDSLoader(mgr).loadAsync(props.url);
+          }
+          case "usd":
+          case "usda":
+          case "usdc":
+          case "usdz": {
+            // r180 USDLoader parses usda text + usdc binary + usdz zip in
+            // pure JS (usda/USDC parsers + fflate, all bundled in three)
+            const { USDLoader } =
+              await import("three/examples/jsm/loaders/USDLoader.js");
+            return new USDLoader().loadAsync(props.url);
+          }
+          case "pcd": {
+            const { PCDLoader } =
+              await import("three/examples/jsm/loaders/PCDLoader.js");
+            return new PCDLoader().loadAsync(props.url);
+          }
+          case "xyz": {
+            const { XYZLoader } =
+              await import("three/examples/jsm/loaders/XYZLoader.js");
+            const geo = await new XYZLoader().loadAsync(props.url);
+            return new THREE.Points(
+              geo,
+              new THREE.PointsMaterial({ color: 0x9fb4d8, size: 0.02 }),
+            );
+          }
+          case "bvh": {
+            // mocap skeleton: BVHLoader returns {skeleton, clip} - draw bones
+            const { BVHLoader } =
+              await import("three/examples/jsm/loaders/BVHLoader.js");
+            const res = await new BVHLoader().loadAsync(props.url);
+            const root = res.skeleton.bones[0];
+            if (!root) throw new Error("empty bvh");
+            const helper = new THREE.SkeletonHelper(root);
+            helper.material = new THREE.LineBasicMaterial({
+              color: 0x9fb4d8,
+            });
+            return helper;
+          }
+          case "lwo":
+          case "lwo2": {
+            // LWOLoader returns {meshes: Object3D[]} - wrap in a Group.
+            const { LWOLoader } =
+              await import("three/examples/jsm/loaders/LWOLoader.js");
+            const lwo = await new LWOLoader(mgr).loadAsync(props.url);
+            const g = new THREE.Group();
+            for (const m of lwo.meshes) g.add(m);
+            return g;
           }
           case "3mf": {
             const { ThreeMFLoader } =
@@ -644,6 +728,15 @@ export function TexturePreview(props: {
           const { DDSLoader } =
             await import("three/examples/jsm/loaders/DDSLoader.js");
           tex = await new DDSLoader().loadAsync(props.url);
+        } else if (ext === "ktx2") {
+          // Basis Universal - transcoder js+wasm served from the app's
+          // own /basis dir (copied from three's examples/libs bundle).
+          const { KTX2Loader } =
+            await import("three/examples/jsm/loaders/KTX2Loader.js");
+          const l = new KTX2Loader().setTranscoderPath("basis/");
+          renderer ??= new THREE.WebGLRenderer({ alpha: true });
+          l.detectSupport(renderer);
+          tex = await l.loadAsync(props.url);
         }
       } catch {
         if (!disposed) setFailed(true);
@@ -653,7 +746,10 @@ export function TexturePreview(props: {
       const el = mount.current;
       const w = el.clientWidth || 200;
       const h = el.clientHeight || 140;
-      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+      renderer ??= new THREE.WebGLRenderer({
+        antialias: false,
+        alpha: true,
+      });
       renderer.setSize(w, h);
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       el.appendChild(renderer.domElement);
@@ -682,6 +778,170 @@ export function TexturePreview(props: {
   }, [props.url, props.path]);
   if (failed) return <>{props.fallback ?? null}</>;
   return <div ref={mount} className="node-model" />;
+}
+
+// ---------- decoded rasters: tiff/psd/raw (Chromium can't read them) ----------
+
+/** Extensions that need a JS decoder before <img> can show them. */
+const DECODE_EXTS = new Set([
+  "tif",
+  "tiff",
+  "psd",
+  "psb",
+  "psdt",
+]);
+
+export function needsImageDecode(path: string): boolean {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  return DECODE_EXTS.has(ext);
+}
+
+async function decodeToCanvas(
+  buf: ArrayBuffer,
+  ext: string,
+): Promise<HTMLCanvasElement> {
+  if (ext === "tif" || ext === "tiff") {
+    // utif is UMD: vite interops the namespace under a hashed key (no .default)
+    const m = (await import("utif")) as Record<string, unknown>;
+    const UTIF = (
+      "decode" in m ? m : (m.default ?? m.U ?? Object.values(m)[0])
+    ) as UtifModule;
+    if (!UTIF?.decode) throw new Error("utif interop");
+    const ifds = UTIF.decode(buf);
+    const ifd = ifds[0];
+    if (!ifd) throw new Error("no ifds");
+    UTIF.decodeImage(buf, ifd);
+    const rgba = UTIF.toRGBA8(ifd);
+    const c = document.createElement("canvas");
+    c.width = ifd.width;
+    c.height = ifd.height;
+    c.getContext("2d")!.putImageData(
+      new ImageData(new Uint8ClampedArray(rgba), c.width, c.height),
+      0,
+      0,
+    );
+    return c;
+  }
+  if (ext === "psd" || ext === "psb" || ext === "psdt") {
+    const { readPsd } = await import("ag-psd");
+    const psd = readPsd(buf, { skipLinkedFilesData: true });
+    if (!psd.canvas) throw new Error("no composite");
+    return psd.canvas;
+  }
+  throw new Error(`no decoder for ${ext}`);
+}
+
+export function DecodedImage(props: {
+  url: string;
+  path: string;
+  fallback?: React.ReactNode;
+}) {
+  const ext = props.path.slice(props.path.lastIndexOf(".") + 1).toLowerCase();
+  const { data, err } = useAsyncData(async () => {
+    if (!DECODE_EXTS.has(ext)) return props.url; // browser-native
+    const buf = await (await fetch(props.url)).arrayBuffer();
+    const c = await decodeToCanvas(buf, ext);
+    return c.toDataURL("image/png");
+  }, [props.url, ext]);
+  if (err) return <>{props.fallback ?? null}</>;
+  if (!data)
+    return <div className="node-media node-media-loading" aria-hidden />;
+  return (
+    <img
+      className="node-media"
+      src={data}
+      alt={baseName(props.path)}
+      draggable={false}
+    />
+  );
+}
+
+/** TIFF-family RAW (dng/cr2/nef/arw/...): largest embedded JPEG preview. */
+export function RawImage(props: {
+  url: string;
+  path: string;
+  fallback?: React.ReactNode;
+}) {
+  const { data, err } = useAsyncData(async () => {
+    const buf = await (await fetch(props.url)).arrayBuffer();
+    const blob = extractRawJpeg(buf);
+    if (!blob) throw new Error("no embedded jpeg");
+    return URL.createObjectURL(blob);
+  }, [props.url]);
+  useEffect(
+    () => () => {
+      if (data) URL.revokeObjectURL(data);
+    },
+    [data],
+  );
+  if (err) return <>{props.fallback ?? null}</>;
+  if (!data)
+    return <div className="node-media node-media-loading" aria-hidden />;
+  return (
+    <img
+      className="node-media"
+      src={data}
+      alt={baseName(props.path)}
+      draggable={false}
+    />
+  );
+}
+
+// ---------- LUT preview (.cube/.3dl/.lut -> graded strip) ---------------
+
+export function LutPreview(props: {
+  url: string;
+  path: string;
+  fallback?: React.ReactNode;
+}) {
+  const { data, err } = useAsyncData(async () => {
+    const text = await (await fetch(props.url)).text();
+    const lut = props.path.toLowerCase().endsWith(".3dl")
+      ? parse3dl(text)
+      : parseCube(text);
+    if (!lut) throw new Error("unparsable lut");
+    const strip = lutStrip(lut, 96, 32);
+    const c = document.createElement("canvas");
+    c.width = strip.w;
+    c.height = strip.h;
+    c.getContext("2d")!.putImageData(
+      new ImageData(strip.px, strip.w, strip.h),
+      0,
+      0,
+    );
+    return { url: c.toDataURL("image/png"), title: lut.title };
+  }, [props.url]);
+  if (err) return <>{props.fallback ?? null}</>;
+  if (!data)
+    return <div className="node-media node-media-loading" aria-hidden />;
+  return (
+    <div className="node-lut">
+      <img src={data.url} alt={baseName(props.path)} draggable={false} />
+      {data.title && <span className="node-lut-title">{data.title}</span>}
+    </div>
+  );
+}
+
+/** Video that falls back to a tile when the codec can't play (mkv/avi). */
+export function VideoPreview(props: {
+  url: string;
+  path: string;
+  fallback?: React.ReactNode;
+}) {
+  const [err, setErr] = useState(false);
+  if (err) return <>{props.fallback ?? null}</>;
+  return (
+    <video
+      className="node-media"
+      src={props.url}
+      muted
+      loop
+      autoPlay
+      playsInline
+      onError={() => setErr(true)}
+      onPointerDown={(e) => e.stopPropagation()}
+    />
+  );
 }
 
 // ---------- html preview (sandboxed iframe; Eagle's mhtml.js lane) ----------

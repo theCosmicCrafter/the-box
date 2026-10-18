@@ -895,6 +895,165 @@ fn file_icon(state: State<'_, AppState>, rel: String) -> FileResult {
     }
 }
 
+// Shell thumbnail for formats without a JS decoder: video frames, HEIC,
+// CR3 and anything a Windows codec/extension can thumbnail (Explorer's
+// IShellItemImageFactory). Cached PNG under .box/thumbs - derived cache.
+// Non-Windows hosts return Err and the tile falls back to the icon lane.
+#[cfg(target_os = "windows")]
+fn shell_thumb_png(abs: &Path, px: i32) -> Result<Vec<u8>, String> {
+    use std::cell::Cell;
+    use windows::core::*;
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::*;
+    use windows::Win32::System::Com::*;
+    use windows::Win32::UI::Shell::*;
+
+    thread_local! {
+        static COM_INIT: Cell<bool> = const { Cell::new(false) };
+    }
+    unsafe {
+        if !COM_INIT.get() {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map_err(|e| format!("com: {e}"))?;
+            COM_INIT.set(true);
+        }
+        // Shell APIs reject \\?\ verbatim paths - strip what canonicalize()
+        // added, and normalize slashes (resolve_inside canonicalizes).
+        let raw = abs.to_string_lossy().replace('/', "\\");
+        let shell_path = if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            format!(r"\\{rest}")
+        } else {
+            raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
+        };
+        let wide: Vec<u16> = shell_path
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let factory: IShellItemImageFactory =
+            SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None)
+                .map_err(|e| format!("shellitem: {e}"))?;
+        // THUMBNAILONLY, not BIGGERSIZEOK: without it the shell returns the
+        // file's icon as a bitmap for everything, which duplicates the
+        // (sharper) icon lane and wastes cache. Err = no real thumbnail.
+        let hbmp = factory
+            .GetImage(SIZE { cx: px, cy: px }, SIIGBF_THUMBNAILONLY)
+            .map_err(|e| format!("thumb: {e}"))?;
+        let mut bmp = BITMAP::default();
+        if GetObjectW(
+            hbmp,
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut bmp as *mut _ as *mut _),
+        ) == 0
+        {
+            let _ = DeleteObject(hbmp);
+            return Err("bitmap info failed".into());
+        }
+        let (w, h) = (bmp.bmWidth, bmp.bmHeight);
+        if w <= 0 || h <= 0 {
+            let _ = DeleteObject(hbmp);
+            return Err("empty thumb".into());
+        }
+        let mut bi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h, // top-down
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let dc = GetDC(None);
+        let rows = GetDIBits(
+            dc,
+            hbmp,
+            0,
+            h as u32,
+            Some(buf.as_mut_ptr() as *mut _),
+            &mut bi,
+            DIB_RGB_COLORS,
+        );
+        ReleaseDC(None, dc);
+        let _ = DeleteObject(hbmp);
+        if rows == 0 {
+            return Err("getdibits failed".into());
+        }
+        // BGRA -> RGBA. Alpha: premultiplied vs straight varies by codec;
+        // if every alpha is 0 the source had none - force opaque.
+        let mut max_a = 0u8;
+        for i in (3..buf.len()).step_by(4) {
+            max_a = max_a.max(buf[i]);
+        }
+        for px in buf.as_chunks_mut::<4>().0.iter_mut() {
+            px.swap(0, 2);
+            px[3] = if max_a == 0 { 255 } else { px[3] };
+        }
+        let img = image::RgbaImage::from_raw(w as u32, h as u32, buf).ok_or("image build")?;
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        Ok(out)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn shell_thumb_png(_abs: &Path, _px: i32) -> Result<Vec<u8>, String> {
+    Err("shell thumbnails are Windows-only for now".into())
+}
+
+fn file_thumb_inner(root: &Path, rel: &str) -> Result<String, String> {
+    if !is_path_rel(rel) {
+        return Err("bad path".into());
+    }
+    let src = resolve_inside(root, rel).ok_or("bad path")?;
+    if !src.is_file() {
+        return Err("not a file".into());
+    }
+    // mtime keys the cache: a re-saved file must re-thumbnail.
+    let mtime = src
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let out_rel = format!(
+        ".box/thumbs/thumb-{:016x}.png",
+        fnv64(&format!("{rel}@{mtime}"))
+    );
+    let out = resolve_inside(root, &out_rel).ok_or("bad path")?;
+    if out.exists() {
+        return Ok(out_rel);
+    }
+    let png = shell_thumb_png(&src, 512)?;
+    let dir = root.join(".box").join("thumbs");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    write_atomic_bytes(root, &out_rel, &png)?;
+    Ok(out_rel)
+}
+
+#[tauri::command]
+fn file_thumb(state: State<'_, AppState>, rel: String) -> FileResult {
+    let run = session_root(&state).and_then(|root| file_thumb_inner(&root, &rel).map_err(cmd_err));
+    match run {
+        Ok(path) => FileResult {
+            ok: true,
+            path: Some(path),
+            error: None,
+        },
+        Err(e) => FileResult {
+            ok: false,
+            path: None,
+            error: e.error,
+        },
+    }
+}
+
 #[tauri::command]
 fn fs_copy(state: State<'_, AppState>, rel: String) -> FileResult {
     let run = session_root(&state).and_then(|root| fs_copy_inner(&root, &rel).map_err(cmd_err));
@@ -1092,6 +1251,7 @@ pub fn run() {
             new_binary_file,
             fs_copy,
             file_icon,
+            file_thumb,
             pick_files,
         ])
         .run(tauri::generate_context!())

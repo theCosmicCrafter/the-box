@@ -134,6 +134,9 @@ declare global {
       fileIcon: (
         rel: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>;
+      fileThumb: (
+        rel: string,
+      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
       pickFiles: (imagesOnly: boolean) => Promise<string[]>;
       onFileDrop: (
         cb: (paths: string[], x: number, y: number) => void,
@@ -305,6 +308,13 @@ export function App() {
   // Typed tiles get the OS-associated icon (cached PNG under .box/icons).
   const resolveIcon = async (rel: string) => {
     const r = await window.box?.fileIcon(rel);
+    return r?.ok && r.path ? resolveMedia(r.path) : null;
+  };
+
+  // Typed tiles try a shell thumbnail first: real content (video frames,
+  // codec-installed heic/raw, blender's registered handler) over icons.
+  const resolveThumb = async (rel: string) => {
+    const r = await window.box?.fileThumb(rel);
     return r?.ok && r.path ? resolveMedia(r.path) : null;
   };
 
@@ -1786,6 +1796,7 @@ export function App() {
             onFileEditCancel={() => setFileEdit(null)}
             resolveMedia={resolveMedia}
             resolveIcon={resolveIcon}
+            resolveThumb={resolveThumb}
             onMove={moveNodeC}
             onResize={(id, w, h) => updateNodeC(id, { width: w, height: h })}
             onCommit={() => void saveBoard()}

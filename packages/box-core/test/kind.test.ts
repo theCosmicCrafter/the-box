@@ -30,8 +30,11 @@ describe("fileKind", () => {
 
   it("binaries get typed-tile kinds", () => {
     expect(fileKind("pack.rar")).toBe("archive");
-    expect(fileKind("brush.psd")).toBe("document");
+    expect(fileKind("brush.psd")).toBe("image"); // decoded via ag-psd composite
     expect(fileKind("photo.cr3")).toBe("raw");
+    expect(fileKind("grade.cube")).toBe("lut");
+    expect(fileKind("rig.usdz")).toBe("model3d");
+    expect(fileKind("scene.lwo2")).toBe("model3d");
     expect(fileKind("mystery.bin")).toBe("other");
     expect(fileKind("no-extension")).toBe("other");
   });

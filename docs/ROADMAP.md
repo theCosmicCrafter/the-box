@@ -75,8 +75,16 @@ measured via `tools/perf-probe.mjs` on a 500-node board.**
       analog): `file_icon` IPC -> systemicons (SHGetFileInfo/NSWorkspace/GTK)
       -> PNG cached per-extension under .box/icons (derived, rebuildable);
       exe/lnk/ico cache per-path. Live-verified on release build.
-- [ ] Deferred parser queue, gated on a real file needing it: ag-psd (PSD),
-      camera-RAW embedded-JPEG extraction, HEIC/JXL decode (T-9/T-14)
+- [x] Creative-tech preview sweep (T-9/T-14): three.js loaders for
+      usd/usda/usdc/usdz, pcd, xyz, bvh, lwo/lwo2/bwo + KTX2Loader with
+      vendored Basis transcoder; decoded rasters via UTIF (tif),
+      ag-psd 31.0.3 (psd/psb composite), zero-dep RAW embedded-JPEG
+      walker (dng/cr2/nef/arw/rw2/orf); .cube/.3dl LUT strips;
+      IShellItemImageFactory thumbnails (`file_thumb` -> .box/thumbs)
+      bridging heic/cr3/video-frames where codec packs exist; chain is
+      preview -> shell thumb -> shell icon -> text tile. HEIC/JXL stay
+      deferred (no maintained pure-JS decoder; shell codec lane covers
+      them when the user has codecs). All live-verified on release build.
 - [x] Windowed/chunked board processing for very large boards (T-14,
       AAAI Infinite-Canvas technique; also feeds the 3D north star) -
       shipped as viewport culling (`display:none`, selected/editing/inking

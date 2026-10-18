@@ -380,6 +380,53 @@ for the corpus). Icons appear in FileTree under .box/ by design (honest
 disk view); isBoxUserObject keeps them out of The Box panel. Rust test:
 file_icon_caches_png_and_rejects_bad_paths (19 Rust total).
 
+Live-verified 2026-10-17 (twelfth pass, release build): creative-tech
+preview sweep on an 11-fixture board plus shell lanes.
+
+Decoders (all in-page, real DOM): `scan.tif` decoded via UTIF to an 8x8
+png (vitest + live); `painting.psd` 6x6 via ag-psd composite;
+`photo.dng` extracted its embedded JPEG to a blob: URL (zero-dep TIFF
+0x0201/0x0202 walker); `kodachrome.cube` and `print.3dl` rendered as
+96x32 graded strips (in-repo parsers; .3dl handles the optional
+shaper-mesh line and 10/16-bit integer ranges).
+
+Model lane (three.js, lazy chunk): glb/obj/pcd/xyz/bvh all mounted live
+GL canvases; USDLoader covers usd/usda/usdc/usdz, LWOLoader covers
+lwo/lwo2/bwo, KTX2Loader + vendored `public/basis/basis_transcoder.*`
+for ktx2 - those three shipped without a live asset (code path only).
+
+Shell thumbnail lane (`file_thumb` -> IShellItemImageFactory ->
+`.box/thumbs/`): a real photo produced a 512x512 PNG; a real `.wmv`
+tile rendered a 320x202 video frame through the full chain (video
+element decode-failed -> TypedTile -> thumb -> img). Fake corpus files
+(70-byte .png stubs) err 0x8004B200 and fall to icons - correct
+degradation. Two real bugs fixed live: (1) canonicalized `\\?\`
+verbatim paths made SHCreateItemFromParsingName return E_INVALIDARG -
+stripped before the shell call; (2) SIIGBF_BIGGERSIZEOK returned
+icon-bitmaps for every file - switched to SIIGBF_THUMBNAILONLY so only
+real content thumbs qualify and everything else falls to the sharper
+icon lane. Blender's `.blend` handler does not fire outside Explorer
+context on this box; falls to icon.
+
+Video error fallback: `broken.mp4` (corrupt) tile shows the shell icon
+instead of a dead <video>. The `lut`/`raw`/`decoded-image` failures
+degrade the same way.
+
+Bugs found by live probing this pass: vite's UMD interop exposes
+`utif` under a hashed key with no `.default` (interop shim added);
+the IDE's organize-imports repeatedly dropped freshly-added import
+specifiers mid-edit (parse3dl shipped as a dangling call site -
+`parse3dl is not defined` at runtime - while typecheck stayed green;
+verify dist imports after touching previews.tsx imports);
+`tsc -b` typecheck passed a missing-name because dist .tsbuildinfo
+served a stale emit - always rebuild dist before bundling.
+
+Unit coverage: decodeMedia.test.ts (8 tests - raw walker LE/BE,
+truncation/foreign-payload rejection, .cube 1d/3d/domain, .3dl
+mesh/10-bit/ambiguity, strip identity + inversion); kind map extended
+(usd*/pcd/xyz/bvh/lwo*/ktx2/psd->image/raw-family/lut family);
+file_thumb adversarial test (20 Rust total).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

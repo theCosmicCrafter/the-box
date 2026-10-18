@@ -104,6 +104,10 @@ export async function installBoxBridge(): Promise<void> {
     // OS-associated icon for a file, cached as .box/icons/*.png (derived).
     fileIcon: (rel: string): Promise<FileResult> =>
       invoke("file_icon", { rel }),
+    // Explorer/shell thumbnail (video frames, codec-installed types like
+    // heic/cr3, .blend's registered handler), cached as .box/thumbs/*.png.
+    fileThumb: (rel: string): Promise<FileResult> =>
+      invoke("file_thumb", { rel }),
     pickFiles: (imagesOnly: boolean): Promise<string[]> =>
       invoke("pick_files", { imagesOnly }),
     // OS-level drag-drop (Tauri intercepts it - HTML5 dataTransfer drops

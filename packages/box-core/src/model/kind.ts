@@ -27,6 +27,7 @@ export type FileKind =
   | "archive"
   | "document"
   | "raw"
+  | "lut"
   | "other";
 
 const BY_EXT: Record<string, FileKind> = {
@@ -118,11 +119,37 @@ const BY_EXT: Record<string, FileKind> = {
   ifc: "model3d",
   blend: "model3d",
   c4d: "model3d",
+  // wider DCC/point-cloud/mocap set - three.js loaders (USD covers
+  // usd/usda/usdc/usdz; BVH renders as a skeleton helper)
+  usd: "model3d",
+  usda: "model3d",
+  usdc: "model3d",
+  usdz: "model3d",
+  pcd: "model3d",
+  xyz: "model3d",
+  bvh: "model3d",
+  lwo: "model3d",
+  lwo2: "model3d",
   // GPU textures: three.js EXR/RGBE/TGA/DDS loaders (Eagle texture-viewer)
   exr: "texture",
   hdr: "texture",
   tga: "texture",
   dds: "texture",
+  ktx2: "texture",
+  // raster formats Chromium can't decode - parsed in the renderer
+  // (utif for tiff, ag-psd for psd, embedded-JPEG walk for RAW) or via
+  // shell thumbnail (heic/jxl/anything a WIC codec covers)
+  psd: "image",
+  psb: "image",
+  psdt: "image",
+  heic: "image",
+  heif: "image",
+  jxl: "image",
+  // color lookup tables (Resolve/Iridas .cube, .3dl, .lut) - parsed to a
+  // gradient preview strip
+  cube: "lut",
+  "3dl": "lut",
+  lut: "lut",
   // code gets syntax highlighting; shaders are the reason this kind exists
   glsl: "code",
   frag: "code",
@@ -231,9 +258,7 @@ const BY_EXT: Record<string, FileKind> = {
   key: "document",
   numbers: "document",
   pages: "document",
-  psd: "document",
-  psb: "document",
-  psdt: "document",
+  // psd/psb/psdt moved to "image" (ag-psd composite decode)
   ai: "document",
   eps: "document",
   indd: "document",

@@ -13,6 +13,8 @@ export default tseslint.config(
       "tests/fixtures/work/**",
       ".tmp-eagle/**",
       "**/.tmp-*/**",
+      // vendored wasm/emscripten runtime for KTX2 - third-party bundle
+      "apps/desktop/src/renderer/public/basis/**",
     ],
   },
   js.configs.recommended,

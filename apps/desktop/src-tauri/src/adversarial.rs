@@ -422,6 +422,28 @@ fn file_icon_caches_png_and_rejects_bad_paths() {
 }
 
 #[test]
+fn file_thumb_caches_by_mtime_and_rejects_bad_paths() {
+    let ws = tmpdir("thumb");
+    fs::write(ws.join("pic.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+    assert!(file_thumb_inner(&ws, "../evil").is_err());
+    assert!(file_thumb_inner(&ws, "nope.bin").is_err());
+    // a real file resolves to .box/thumbs/<key>.png on Windows (or errs
+    // cleanly on hosts where the shell can't thumbnail it)
+    if let Ok(rel) = file_thumb_inner(&ws, "pic.png") {
+        assert!(rel.starts_with(".box/thumbs/thumb-") && rel.ends_with(".png"));
+        let b = fs::read(ws.join(&rel)).unwrap();
+        assert_eq!(&b[..4], b"\x89PNG");
+        // same mtime -> same cached path (no re-encode)
+        assert_eq!(file_thumb_inner(&ws, "pic.png").unwrap(), rel);
+        // touch a new mtime -> a different cache key
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(ws.join("pic.png"), b"\x89PNG\r\n\x1a\nmore").unwrap();
+        let r2 = file_thumb_inner(&ws, "pic.png");
+        assert!(r2.is_err() || r2.unwrap() != rel);
+    }
+}
+
+#[test]
 fn create_new_handles_empty_ext_without_trailing_dot() {
     let ws = tmpdir("new-ext");
     let p = create_new(&ws, "", "dotless", "", b"x").unwrap();
