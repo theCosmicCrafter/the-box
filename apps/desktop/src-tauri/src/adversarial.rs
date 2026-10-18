@@ -444,6 +444,22 @@ fn file_thumb_caches_by_mtime_and_rejects_bad_paths() {
 }
 
 #[test]
+fn decide_post_allowlist_is_loopback_only() {
+    // ADR-0010: the zero-cloud rule lives here - the command must refuse
+    // anything that is not a loopback http URL, including smuggled forms.
+    assert!(is_loopback_url("http://127.0.0.1:8770/v1/systemone"));
+    assert!(is_loopback_url("http://localhost:47311/x"));
+    assert!(is_loopback_url("http://[::1]:11434/api"));
+    assert!(!is_loopback_url("https://127.0.0.1:8770/x"));
+    assert!(!is_loopback_url("http://example.com"));
+    assert!(!is_loopback_url("http://127.0.0.1.evil.com/x"));
+    assert!(!is_loopback_url("http://127.0.0.1@evil.com/x"));
+    assert!(!is_loopback_url("ftp://127.0.0.1/x"));
+    assert!(!is_loopback_url("http://localhost.evil/x"));
+    assert!(!is_loopback_url(""));
+}
+
+#[test]
 fn create_new_handles_empty_ext_without_trailing_dot() {
     let ws = tmpdir("new-ext");
     let p = create_new(&ws, "", "dotless", "", b"x").unwrap();

@@ -20,7 +20,9 @@ const send = (method, params) =>
     pend[i] = r;
     ws.send(JSON.stringify({ id: i, method, params }));
   });
+const buttonMask = { left: 1, right: 2, middle: 4 };
 for (const s of steps) {
+  const b = s.button ?? "left";
   await send("Input.dispatchMouseEvent", {
     type:
       s.type === "down"
@@ -32,8 +34,13 @@ for (const s of steps) {
             : "mouseMoved",
     x: s.x,
     y: s.y,
-    button: s.button ?? "left",
-    buttons: s.type === "move" ? (s.buttons ?? 1) : 1,
+    button: b,
+    buttons:
+      s.type === "move"
+        ? (s.buttons ?? buttonMask[b] ?? 1)
+        : s.type === "up"
+          ? 0
+          : (s.buttons ?? buttonMask[b] ?? 1),
     clickCount: s.count ?? 1,
     pointerType: "mouse",
   });

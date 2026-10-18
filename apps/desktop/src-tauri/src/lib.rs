@@ -1054,6 +1054,41 @@ fn file_thumb(state: State<'_, AppState>, rel: String) -> FileResult {
     }
 }
 
+// ADR-0010: Stage-4 decision calls route through Rust because the
+// webview CSP connect-src blocks outbound http by design. The command
+// allowlists loopback hosts only - the zero-cloud rule lives in
+// platform code, not in a flag a setting could forget.
+fn is_loopback_url(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return false;
+    };
+    for host in ["127.0.0.1", "localhost", "[::1]"] {
+        if let Some(tail) = rest.strip_prefix(host) {
+            if tail.is_empty() || tail.starts_with(':') || tail.starts_with('/') {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[tauri::command]
+fn decide_post(url: String, body: String) -> Result<String, String> {
+    if !is_loopback_url(&url) {
+        return Err("decide_post: non-loopback url refused".to_string());
+    }
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
+    let mut res = agent
+        .post(&url)
+        .content_type("application/json")
+        .send(body.as_bytes())
+        .map_err(|e| e.to_string())?;
+    res.body_mut().read_to_string().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn fs_copy(state: State<'_, AppState>, rel: String) -> FileResult {
     let run = session_root(&state).and_then(|root| fs_copy_inner(&root, &rel).map_err(cmd_err));
@@ -1252,6 +1287,7 @@ pub fn run() {
             fs_copy,
             file_icon,
             file_thumb,
+            decide_post,
             pick_files,
         ])
         .run(tauri::generate_context!())

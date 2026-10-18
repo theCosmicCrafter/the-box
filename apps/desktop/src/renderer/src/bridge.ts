@@ -110,6 +110,10 @@ export async function installBoxBridge(): Promise<void> {
       invoke("file_thumb", { rel }),
     pickFiles: (imagesOnly: boolean): Promise<string[]> =>
       invoke("pick_files", { imagesOnly }),
+    // ADR-0010: decision calls travel through Rust (loopback-only) because
+    // the webview CSP connect-src blocks outbound http by design.
+    decidePost: (url: string, body: string): Promise<string> =>
+      invoke("decide_post", { url, body }),
     // OS-level drag-drop (Tauri intercepts it - HTML5 dataTransfer drops
     // only carry in-app payloads). Position is physical pixels; callers
     // divide by devicePixelRatio for CSS coords.

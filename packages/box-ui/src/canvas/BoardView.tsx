@@ -11,7 +11,7 @@ import type { Camera } from "./camera.js";
 import { DEFAULT_CAMERA, screenToWorld, zoomToFit } from "./camera.js";
 import { nodeVisible, worldViewport } from "./cull.js";
 import type { DraftEdge } from "./EdgeLayer.js";
-import { EdgeHandles, EdgeLayer, anchor } from "./EdgeLayer.js";
+import { EdgeHandles, EdgeLayer, anchor, edgeMidpoint } from "./EdgeLayer.js";
 import type { InkPoint } from "./ink.js";
 import { strokeToPath } from "./ink.js";
 import { MiniMap } from "./MiniMap.js";
@@ -113,6 +113,15 @@ export interface BoardViewProps {
     wx: number,
     wy: number,
   ) => void;
+  /** ADR-0010 / FR-401: pending link-type proposal pill at the edge mid.
+   *  Ephemeral renderer state only - confirm writes via the normal
+   *  note-edit channel; dismiss forgets for the session. */
+  linkProposal?:
+    | { edgeId: string; suggestedType: string; confidence: number }
+    | null
+    | undefined;
+  onLinkProposalConfirm?: (() => void) | undefined;
+  onLinkProposalDismiss?: (() => void) | undefined;
 }
 
 interface Draft {
@@ -813,6 +822,42 @@ export function BoardView(props: BoardViewProps) {
           setRetarget({ edgeId, end, x: a.x, y: a.y, overId: null });
         }}
       />
+      {(() => {
+        const p = props.linkProposal;
+        if (p === null || p === undefined) return null;
+        const e = props.board.edges.find((x) => x.id === p.edgeId);
+        if (e === undefined) return null;
+        const from = nodeById(e.fromNode);
+        const to = nodeById(e.toNode);
+        if (from === undefined || to === undefined) return null;
+        const mid = edgeMidpoint(
+          anchor(from, e.fromSide ?? "right"),
+          anchor(to, e.toSide ?? "left"),
+        );
+        return (
+          <div
+            className="link-proposal"
+            style={{ left: mid.x, top: mid.y }}
+            onPointerDown={(ev) => ev.stopPropagation()}
+          >
+            <span className="link-proposal-type">{p.suggestedType}?</span>
+            <button
+              className="link-proposal-btn confirm"
+              title="Set link type"
+              onClick={props.onLinkProposalConfirm}
+            >
+              ✓
+            </button>
+            <button
+              className="link-proposal-btn dismiss"
+              title="Ignore suggestion"
+              onClick={props.onLinkProposalDismiss}
+            >
+              ✕
+            </button>
+          </div>
+        );
+      })()}
       {(() => {
         if (!inkDraft) return null;
         const n = props.board.nodes.find((x) => x.id === inkDraft.nodeId);

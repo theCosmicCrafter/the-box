@@ -462,6 +462,23 @@ click-through needs `getBoundingClientRect` targeting - the transform on
 computed center can still land on `.canvas-viewport` if the node is
 culled or overlapped.
 
+Live-verified 2026-10-18 (release build, bulk fixture, `tools/stub-von.mjs`
+on :8771 as the decision endpoint): ADR-0010 / FR-401 link-type
+proposals - with `ai.enabled` absent, an edge draw produced no pill.
+With `ai.enabled:true` + `ai.vonUrl` pointing at the stub, a handle-drag
+edge fired a real POST (`questions=link_type from=f25.md to=f575.md`)
+and the `supports?✓✕` pill mounted at the edge midpoint. Confirm wrote
+`type: supports` to the link note, propagated to board `label` denorm and
+the rendered `.edge-label`; dismiss unmounted with zero writes. Two bugs
+only this pass surfaced: (1) the webview CSP `connect-src` blocks
+outbound http, so `fetch` to loopback daemons fails before the wire -
+decision transport now goes through a loopback-allowlisted Rust
+`decide_post` (ureq); (2) `cdp-input` sent `buttons:1` on `mouseReleased`
+and `mousePressed` regardless of button - now maps per-button masks and 0
+on release, which fixed middle-drag panning. Harness note: `.node-handle`
+is `pointer-events:none` until the node is hovered - send a settle `move`
+before `down` or the draft never starts.
+
 ## 9. Manual/dogfood protocol (Stage 1 exit)
 
 Christian, unaided, on `TheBox-Dev`: open folder → place 3 objects → draw 2

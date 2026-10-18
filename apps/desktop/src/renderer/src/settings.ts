@@ -11,6 +11,8 @@ export interface BoxSettings {
   audio?: { mode?: "off" | "all" | "viewport" };
   /** ext (lowercase, with dot) -> absolute app path for "Open with". */
   openWith?: Record<string, string>;
+  /** ADR-0010: Stage-4 proposal layer - off by default, local Von only. */
+  ai?: { enabled?: boolean; vonUrl?: string };
   [k: string]: unknown;
 }
 
@@ -43,11 +45,13 @@ export async function saveSettings(
     ink: { ...cur.ink, ...patch.ink },
     audio: { ...cur.audio, ...patch.audio },
     openWith: { ...cur.openWith, ...patch.openWith },
+    ai: { ...cur.ai, ...patch.ai },
   };
   if (next.ink && Object.keys(next.ink).length === 0) delete next.ink;
   if (next.audio && Object.keys(next.audio).length === 0) delete next.audio;
   if (next.openWith && Object.keys(next.openWith).length === 0)
     delete next.openWith;
+  if (next.ai && Object.keys(next.ai).length === 0) delete next.ai;
   await window.box?.writeFileAtomic(
     root,
     REL,

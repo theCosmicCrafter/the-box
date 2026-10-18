@@ -8,15 +8,18 @@ import type {
     CanvasEdge,
     CanvasNode,
     Delta,
+    IDecisionClient,
     InkStroke,
     LinkNote,
+    LinkTypeProposal,
     ProblemItem,
     Side,
-    WritePlan,
+    WritePlan
 } from "@box/core";
 import {
     baseName,
     BOARD_FORMAT,
+    createDecisionClient,
     createEdgePlan,
     deleteEdgePlan,
     fileKind,
@@ -141,6 +144,7 @@ declare global {
         rel: string,
       ) => Promise<{ ok: boolean; path?: string; error?: string }>;
       pickFiles: (imagesOnly: boolean) => Promise<string[]>;
+      decidePost: (url: string, body: string) => Promise<string>;
       onFileDrop: (
         cb: (paths: string[], x: number, y: number) => void,
       ) => Promise<() => void>;
@@ -272,6 +276,12 @@ export function App() {
   } | null>(null);
   // The selected edge's link note, parsed from disk.
   const [edgeNote, setEdgeNote] = useState<LinkNote | null>(null);
+  // ADR-0010: Stage-4 proposal layer - ephemeral React state, never
+  // persisted; the only write it can cause is the user-confirmed action.
+  const [linkProposal, setLinkProposal] =
+    useState<LinkTypeProposal | null>(null);
+  const dismissedProposals = useRef(new Set<string>());
+  const decisionClient = useRef<IDecisionClient>(createDecisionClient());
   const noteDirty = useRef(false);
   const [noteStale, setNoteStale] = useState(false);
   // First-run surface: board creation + doc excerpts + text editing.
@@ -643,6 +653,23 @@ export function App() {
     if (s.audio?.mode === "all" || s.audio?.mode === "viewport")
       setAudioMode(s.audio.mode);
     setOpenWithMap(s.openWith ?? {});
+    // ADR-0010: rebuild the proposal client from non-truth prefs.
+    // Disabled by default; unreachable daemon resolves offline and the
+    // proposal layer simply renders nothing (FR-407, ERR-9). Transport is
+    // the loopback-only Rust command - webview fetch is CSP-blocked.
+    const ipcFetch: typeof fetch = async (input, init) => {
+      if (!window.box) throw new Error("bridge not ready");
+      const body = await window.box.decidePost(
+        String(input),
+        String(init?.body ?? ""),
+      );
+      return new Response(body, { status: 200 });
+    };
+    decisionClient.current = createDecisionClient({
+      enabled: s.ai?.enabled === true,
+      url: s.ai?.vonUrl,
+      fetchFn: s.ai?.enabled === true ? ipcFetch : undefined,
+    });
   };
 
   const setInkColorPref = (c: string) => {
@@ -1101,9 +1128,73 @@ export function App() {
     if (errors.length === 0) {
       addEdge(edge);
       void rescan(); // the new link-<id>.md should appear in the file list
+      void proposeLinkType(edge);
     } else {
       useBoxStore.getState().setProblems(errors);
     }
+  };
+
+  // FR-401 / ADR-0010: after an edge lands, ask the local decision
+  // client for a link type. Offline/disabled resolves null - the pill
+  // never mounts, nothing else changes.
+  const nodeSummary = (id: string): string => {
+    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === id);
+    if (n === undefined) return id;
+    if (typeof n.label === "string" && n.label !== "") return n.label;
+    if (n.type === "file" && typeof n.file === "string")
+      return baseName(n.file);
+    if (n.type === "text" && typeof n.text === "string")
+      return n.text.slice(0, 80);
+    return n.type;
+  };
+
+  const proposeLinkType = async (edge: CanvasEdge) => {
+    if (dismissedProposals.current.has(edge.id)) return;
+    const p = await decisionClient.current.suggestLinkType(
+      edge.id,
+      nodeSummary(edge.fromNode),
+      nodeSummary(edge.toNode),
+    );
+    // Re-check at apply time (ADR-0010 §5): the edge may be gone or the
+    // user may have acted while the answer was in flight.
+    if (p === null || dismissedProposals.current.has(p.edgeId)) return;
+    const alive = useBoxStore
+      .getState()
+      .board?.edges.some((x) => x.id === p.edgeId);
+    if (alive === true) setLinkProposal(p);
+  };
+
+  const confirmLinkProposal = async () => {
+    const p = linkProposal;
+    if (p === null || !workspaceRoot || !window.box) return;
+    const b = useBoxStore.getState().board;
+    const e = b?.edges.find((x) => x.id === p.edgeId);
+    if (e === undefined) {
+      setLinkProposal(null);
+      return;
+    }
+    const rel = e["box-link"];
+    const text = await window.box.readFile(workspaceRoot, rel);
+    setLinkProposal(null);
+    if (text === null || text === undefined) return;
+    const { value } = parseLinkNote(text, rel);
+    if (!value) return;
+    const fm = { ...value.frontmatter, type: p.suggestedType };
+    await window.box.writeFileAtomic(
+      workspaceRoot,
+      rel,
+      serializeLinkNote({ ...value, frontmatter: fm }),
+    );
+    // R-B: the note is endpoint/label-authoritative; rescan propagates
+    // type -> board label denorm (FR-204 path).
+    void rescan();
+    if (edgeNote?.path === rel) void selectEdge(p.edgeId);
+  };
+
+  const dismissLinkProposal = () => {
+    if (linkProposal !== null)
+      dismissedProposals.current.add(linkProposal.edgeId);
+    setLinkProposal(null);
   };
 
   // I-2: edge erase -> tombstone, board, note to Recycle Bin.
@@ -1117,6 +1208,7 @@ export function App() {
     if (errors.length === 0) {
       removeEdge(edgeId);
       setEdgeNote(null);
+      setLinkProposal((p) => (p?.edgeId === edgeId ? null : p));
       void rescan();
     } else {
       useBoxStore.getState().setProblems(errors);
@@ -1853,6 +1945,9 @@ export function App() {
             }}
             viewportRef={vpElRef}
             onDropEdgeAt={(f, s, x, y) => void dropEdgeAt(f, s, x, y)}
+            linkProposal={linkProposal}
+            onLinkProposalConfirm={() => void confirmLinkProposal()}
+            onLinkProposalDismiss={dismissLinkProposal}
             onInspectNode={(id) => {
               const n = board.nodes.find((x) => x.id === id);
               if (n?.type === "file") setInspectPath(n.file);
