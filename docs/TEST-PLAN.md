@@ -427,6 +427,17 @@ mesh/10-bit/ambiguity, strip identity + inversion); kind map extended
 (usd*/pcd/xyz/bvh/lwo*/ktx2/psd->image/raw-family/lut family);
 file_thumb adversarial test (20 Rust total).
 
+Live-verified 2026-10-17 (thirteenth pass, release build): main
+renderer chunk 904 -> 421 kB. CmBodyEditor went React.lazy - the
+CodeMirror stack (~503 kB incl. lang-markdown) loads only when an
+edge's note panel opens; clicked edge 0000000000000001 on the release
+binary, `.cm-editor` mounted with the note body ("Edge 0."). The three
+chunk (1.03 MB) and decode lane (288 kB ag-psd+decodeMedia, 84 kB
+UTIF) were already lazy; remaining >800 kB warning is the lazy three
+chunk only. Note: `Suspense` must be in the react import - the IDE's
+organize-imports dropped it once more (typecheck caught it; same
+failure class as the parse3dl incident).
+
 Harness caveats for future sessions: CDP `Input.dispatchMouseEvent` does
 not synthesize `dblclick` from click pairs in WebView2 - dispatch a DOM
 `dblclick` MouseEvent instead (the React handler itself is verified);

@@ -4,8 +4,13 @@
 // human layer. Save writes the whole note back through the atomic IPC.
 
 import type { LinkNote } from "@box/core";
-import { useEffect, useState } from "react";
-import { CmBodyEditor } from "./CmBodyEditor.js";
+import { lazy, Suspense, useEffect, useState } from "react";
+
+// CodeMirror is ~350 kB of parse/highlight machinery the board never
+// needs until a note opens - keep it out of the main chunk.
+const CmBodyEditor = lazy(() =>
+  import("./CmBodyEditor.js").then((m) => ({ default: m.CmBodyEditor })),
+);
 
 export interface NotePanelProps {
   note: LinkNote;
@@ -113,11 +118,13 @@ export function NotePanel({
       {/* FR-207: CM6 markdown editor for the body; frontmatter stays a
           structured read-only layer above, so box-edge is never editable. */}
       <div className="note-panel-body">
-        <CmBodyEditor
-          doc={body}
-          placeholder="What does this connection mean?"
-          onDoc={setBody}
-        />
+        <Suspense fallback={<div className="cm-body" aria-hidden />}>
+          <CmBodyEditor
+            doc={body}
+            placeholder="What does this connection mean?"
+            onDoc={setBody}
+          />
+        </Suspense>
       </div>
       <footer className="note-panel-foot">
         <button onClick={save} disabled={!dirty}>
