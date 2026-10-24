@@ -67,6 +67,8 @@ export interface NodeViewProps {
   dropTarget?: boolean;
   /** Off-viewport: display:none (tldraw culling - stays in DOM, no paint). */
   culled?: boolean | undefined;
+  /** Level of detail: "low" renders lightweight proxy box (zoomed far out). */
+  lod?: "full" | "low" | undefined;
   /** Resolves a workspace-relative file path to a displayable URL. */
   resolveMedia?: ((rel: string) => string) | undefined;
   /** OS-native icon fallback for typed tiles: rel -> media URL or null. */
@@ -843,7 +845,9 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
         <span className="node-kind">{kind}</span>
       )}
       {props.broken && <span className="node-flag">missing</span>}
-      {node.type === "file" &&
+      {props.lod === "low" ? (
+        <div className="node-proxy">{label(node)}</div>
+      ) : node.type === "file" &&
       props.editing &&
       (kind === "text" || kind === "code") ? (
         <textarea
@@ -902,7 +906,8 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
               : "region"}
           </div>
         )}
-      {node.type === "file" &&
+      {props.lod !== "low" &&
+        node.type === "file" &&
         props.ink !== undefined &&
         props.ink.length > 0 && (
           <svg
@@ -932,17 +937,18 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
             ))}
           </svg>
         )}
-      {SIDES.map((side) => (
-        <div
-          key={side}
-          className="node-handle"
-          data-side={side}
-          style={HANDLE_POS[side]}
-          onPointerDown={handleDown(side)}
-          onPointerMove={handleMove}
-          onPointerUp={handleUp}
-        />
-      ))}
+      {props.lod !== "low" &&
+        SIDES.map((side) => (
+          <div
+            key={side}
+            className="node-handle"
+            data-side={side}
+            style={HANDLE_POS[side]}
+            onPointerDown={handleDown(side)}
+            onPointerMove={handleMove}
+            onPointerUp={handleUp}
+          />
+        ))}
       {props.selected && (
         <div
           className="node-resize"

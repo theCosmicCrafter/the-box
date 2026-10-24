@@ -46,7 +46,7 @@ in docs (+ an ADR) *before* code. If code and docs disagree, docs win.
 npm run typecheck   # tsc -b, strict + exactOptionalPropertyTypes - must be clean
 npm run lint        # eslint - must be clean
 npm test            # vitest across workspaces (103 core + 49 UI)
-cargo test          # in apps/desktop/src-tauri (16 adversarial tests)
+cargo test          # in apps/desktop/src-tauri (25 adversarial tests)
 cargo clippy        # clean
 npm run tauri build -w @box/desktop   # Windows MSI + NSIS installers
 ```

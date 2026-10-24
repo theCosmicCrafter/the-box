@@ -17,7 +17,7 @@ open-with external editors, all live-verified under WebView2.
 
 Current snapshot (see `docs/TEST-PLAN.md` for the verification matrix):
 
-- 103 core + 49 UI + 16 Rust tests green; typecheck, eslint, clippy clean
+- 130 core + 59 UI + 29 Rust tests green; typecheck, eslint, clippy clean
 - 5,202-file workspace + 500-node board: ~2.2 s cold open, ~60 FPS pan
 - Windows installers: NSIS (per-user, silent-verified) and MSI
 - Remaining gaps and stage status are tracked in `docs/ROADMAP.md`

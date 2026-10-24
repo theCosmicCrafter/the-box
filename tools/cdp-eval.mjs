@@ -1,6 +1,12 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // CDP eval helper: node tools/cdp-eval.mjs '<expr>' [port]
-const port = process.argv[3] ?? "9223";
-const expr = process.argv[2];
+import { readFileSync } from "node:fs";
+
+const port = process.env.CDP_PORT ?? "9223";
+let expr = process.argv.slice(2).join(" ");
+if (process.argv[2] === "-" || !expr) {
+  expr = readFileSync(0, "utf8");
+}
 const list = await fetch(`http://localhost:${port}/json/list`).then((r) =>
   r.json(),
 );

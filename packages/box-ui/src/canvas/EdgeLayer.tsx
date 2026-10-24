@@ -232,13 +232,25 @@ export function EdgeHandles({
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
   const from = byId.get(e.fromNode);
   const to = byId.get(e.toNode);
-  if (!from || !to) return null; // broken edge - stubs have no handle target
-  const a1 = anchor(from, e.fromSide ?? "right");
-  const a2 = anchor(to, e.toSide ?? "left");
+  if (!from && !to) return null; // both gone - surfaced via brokenEdges, no geometry exists
+  const rawA1 = from ? anchor(from, e.fromSide ?? "right") : null;
+  const rawA2 = to ? anchor(to, e.toSide ?? "left") : null;
+  const a1 = rawA1 ?? {
+    x: rawA2!.x - 60 * rawA2!.nx,
+    y: rawA2!.y - 60 * rawA2!.ny,
+    nx: rawA2!.nx,
+    ny: rawA2!.ny,
+  };
+  const a2 = rawA2 ?? {
+    x: rawA1!.x + 60 * rawA1!.nx,
+    y: rawA1!.y + 60 * rawA1!.ny,
+    nx: rawA1!.nx,
+    ny: rawA1!.ny,
+  };
   return (
     <svg className="edge-handles" viewBox="-1000000 -1000000 2000000 2000000">
       <circle
-        className="edge-endpoint"
+        className={`edge-endpoint ${!from ? "broken" : ""}`}
         cx={a1.x}
         cy={a1.y}
         r={endR}
@@ -249,7 +261,7 @@ export function EdgeHandles({
         }}
       />
       <circle
-        className="edge-endpoint"
+        className={`edge-endpoint ${!to ? "broken" : ""}`}
         cx={a2.x}
         cy={a2.y}
         r={endR}

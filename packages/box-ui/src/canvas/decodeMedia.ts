@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // decodeMedia.ts - raster decoders for formats Chromium won't touch.
 // Pure functions (ArrayBuffer in, canvas/blob out) so every lane is
 // unit-testable; the React wrappers live in previews.tsx.

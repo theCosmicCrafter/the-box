@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // Capture console/exception output for N ms (optionally reload first).
 // node tools/cdp-console.mjs [ms] [--reload]
 const port = process.env.CDP_PORT ?? "9223";

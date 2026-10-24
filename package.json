@@ -16,6 +16,7 @@
     "test": "npm test --workspaces --if-present",
     "test:invariants": "vitest run --dir packages/box-core/test invariant",
     "test:formats": "vitest run --dir packages/box-core/test formats",
+    "test:chaos": "vitest run --dir packages/box-core/test chaos",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

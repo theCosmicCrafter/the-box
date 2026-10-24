@@ -15,10 +15,22 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
       - run: npm run test:invariants
       - run: npm run test:formats
+      # DEVOPS 3/4 rust gates: the platform layer (fs, watcher, protocol,
+      # decide_post allowlist) is security-relevant and carries the
+      # `adversarial` suite - it must block merge like the TS gates do.
+      - run: cargo fmt --check
+        working-directory: apps/desktop/src-tauri
+      - run: cargo clippy --all-targets
+        working-directory: apps/desktop/src-tauri
+      - run: cargo test
+        working-directory: apps/desktop/src-tauri
       # FOSS gates activate when code exists:
       # - run: npx reuse lint

@@ -503,6 +503,23 @@ button:hover {
   border-style: dashed;
 }
 
+.node-proxy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  font-size: 11px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+
 .node-kind {
   position: absolute;
   top: 4px;
@@ -926,7 +943,24 @@ button:hover {
 .note-panel-foot {
   padding: 10px 12px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.note-panel-foot button.danger {
+  background: transparent;
+  border: 1px solid #5a3a3a;
+  color: #d08a8a;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.note-panel-foot button.danger:hover {
+  background: rgba(176, 90, 90, 0.16);
+  border-color: #804a4a;
 }
 
 .note-panel-foot button:disabled {
@@ -1608,6 +1642,10 @@ button:hover {
   vector-effect: non-scaling-stroke;
   pointer-events: all;
   cursor: grab;
+}
+
+.edge-endpoint.broken {
+  fill: #d08a8a;
 }
 
 /* CM6 note-body editor surface (FR-207). */

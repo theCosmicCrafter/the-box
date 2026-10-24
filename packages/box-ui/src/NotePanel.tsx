@@ -21,6 +21,8 @@ export interface NotePanelProps {
   onDirtyChange?: (dirty: boolean) => void;
   /** Jump the canvas camera to an endpoint node (FR-205). */
   onJumpNode?: (nodeId: string) => void;
+  /** Erase this edge and move its link note to the Recycle Bin (I-2). */
+  onDelete?: () => void;
 }
 
 export function NotePanel({
@@ -30,6 +32,7 @@ export function NotePanel({
   onClose,
   onDirtyChange,
   onJumpNode,
+  onDelete,
 }: NotePanelProps) {
   const [body, setBody] = useState(note.body);
   const [type, setType] = useState(
@@ -127,6 +130,16 @@ export function NotePanel({
         </Suspense>
       </div>
       <footer className="note-panel-foot">
+        {onDelete && (
+          <button
+            type="button"
+            className="danger"
+            onClick={onDelete}
+            title="Erase edge and move link note to Recycle Bin (I-2)"
+          >
+            Delete link
+          </button>
+        )}
         <button onClick={save} disabled={!dirty}>
           Save note
         </button>

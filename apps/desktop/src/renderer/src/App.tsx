@@ -23,6 +23,7 @@ import {
     createEdgePlan,
     deleteEdgePlan,
     fileKind,
+    hasBoxFormatMarker,
     hasScaffoldDirs,
     importSpecCanvas,
     isPathRel,
@@ -398,7 +399,7 @@ export function App() {
     if (
       rel.endsWith(".canvas") &&
       !rel.endsWith(".box.canvas") &&
-      !text.includes('"box-format"')
+      !hasBoxFormatMarker(text)
     ) {
       const imp = importSpecCanvas(text, rel);
       if ("error" in imp) {
@@ -856,13 +857,23 @@ export function App() {
   const jumpToNode = (id: string) => setFocusNode({ id, nonce: Date.now() });
 
   // Problem rows are `kind: path - detail`. Clicking locates the object:
-  // first look for any board node whose file/sidecar/id appears anywhere in
+  // first look for any board edge/node whose id/file/sidecar appears anywhere in
   // the message (detail text carries the interesting path, e.g. "file
-  // missing: x.txt"); fall back to the headline path. A board path opens
-  // that board. Non-path problems no-op.
+  // missing: x.txt" or "edge 0000000000000064 dangling endpoint");
+  // fall back to the headline path. A board path opens that board.
   const locateProblem = (p: string) => {
     const b = useBoxStore.getState().board;
     if (b) {
+      const edgeHit = b.edges.find((e) => p.includes(e.id));
+      if (edgeHit) {
+        selectEdge(edgeHit.id);
+        const surviving = b.nodes.find(
+          (n) => n.id === edgeHit.fromNode || n.id === edgeHit.toNode,
+        );
+        if (surviving) jumpToNode(surviving.id);
+        return;
+      }
+
       const hit = b.nodes.find((n) => {
         if (n.type === "file")
           return (
@@ -1063,19 +1074,48 @@ export function App() {
         brokenEdges: new Set(e.brokenEdges),
       });
       for (const d of e.deltas) {
-        if (d.kind === "renamed" && d.to !== undefined) {
+        if (d.kind === "deleted") {
+          setFileTexts((prev) => {
+            if (!prev.has(d.path)) return prev;
+            const next = new Map(prev);
+            next.delete(d.path);
+            return next;
+          });
+        } else if (d.kind === "renamed" && d.to !== undefined) {
           const to = d.to;
           setInspectPath((cur) => (cur === d.path ? to : cur));
           setFileTexts((prev) => {
             const ex = prev.get(d.path) ?? fileTexts.get(d.path);
             if (ex === undefined) return prev;
             const next = new Map(prev);
+            next.delete(d.path);
             next.set(to, ex);
             return next;
           });
         }
       }
       const { boardPath: bp, board: cur, workspaceRoot: root } = s;
+      // External edits to placed file nodes: refresh their in-memory text excerpts immediately.
+      const placedFiles = new Set(
+        s.board?.nodes
+          .filter((n): n is CanvasNode & { type: "file" } => n.type === "file")
+          .map((n) => n.file) ?? [],
+      );
+      for (const p of e.changedPaths) {
+        if (placedFiles.has(p) && root) {
+          void api.readFile(root, p).then((text) => {
+            if (text !== null) {
+              const cap =
+                fileKind(p) === "board"
+                  ? 256 * 1024
+                  : fileKind(p) === "csv"
+                    ? 8 * 1024
+                    : 400;
+              setFileTexts((prev) => new Map(prev).set(p, text.slice(0, cap)));
+            }
+          });
+        }
+      }
       if (root && bp && e.changedPaths.includes(bp)) {
         void (async () => {
           const text = await api.readFile(root, bp);
@@ -1897,6 +1937,7 @@ export function App() {
           <BoardView
             key={boardPath}
             board={board}
+            selectedEdge={edgeNote?.frontmatter["box-edge"] ?? null}
             brokenNodes={brokenNodes}
             brokenEdges={remote?.brokenEdges}
             fileTexts={fileTexts}
@@ -1974,6 +2015,10 @@ export function App() {
                 noteDirty.current = d;
               }}
               onJumpNode={jumpToNode}
+              onDelete={() => {
+                const eid = edgeNote.frontmatter["box-edge"];
+                if (typeof eid === "string") void deleteEdge(eid);
+              }}
             />
           )}
         </div>

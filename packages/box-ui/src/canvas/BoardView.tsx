@@ -61,6 +61,8 @@ export interface BoardViewProps {
   focusNode?: { id: string; nonce: number } | null | undefined;
   /** Imperative zoom-to-fit request: camera fits all nodes (Shift+1). */
   fitAllRequest?: { nonce: number } | undefined;
+  /** Selected edge id (or null when cleared). */
+  selectedEdge?: string | null | undefined;
   onDeleteNode?: (id: string) => void;
   /** Batch placement-removal (one board write); falls back to onDeleteNode. */
   onDeleteNodes?: (ids: string[]) => void;
@@ -227,7 +229,15 @@ export function BoardView(props: BoardViewProps) {
     return () => ro.disconnect();
   }, []);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(
+    props.selectedEdge ?? null,
+  );
+
+  useEffect(() => {
+    if (props.selectedEdge !== undefined) {
+      setSelectedEdge(props.selectedEdge);
+    }
+  }, [props.selectedEdge]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [retarget, setRetarget] = useState<Retarget | null>(null);
   const [inkDraft, setInkDraft] = useState<{
@@ -779,6 +789,11 @@ export function BoardView(props: BoardViewProps) {
             cameraRef={camRef}
             culled={
               view !== null && !unCullable.has(n.id) && !nodeVisible(n, view)
+            }
+            lod={
+              cam.z < 0.35 && !unCullable.has(n.id) && n.type !== "group"
+                ? "low"
+                : "full"
             }
             selected={sel.has(n.id)}
             broken={brokenNodes.has(n.id)}

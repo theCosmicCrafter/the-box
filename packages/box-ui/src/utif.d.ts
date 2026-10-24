@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // Minimal UTIF surface - the package ships no declarations.
 declare module "utif" {
   export interface Ifd {
