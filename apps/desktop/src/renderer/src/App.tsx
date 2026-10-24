@@ -22,6 +22,7 @@ import {
     createDecisionClient,
     createEdgePlan,
     deleteEdgePlan,
+    fallbackVector,
     fileKind,
     hasBoxFormatMarker,
     hasScaffoldDirs,
@@ -38,24 +39,30 @@ import {
     serializeBoard,
     serializeInkSvg,
     serializeLinkNote,
-    serializeOplog
+    serializeOplog,
+    topKSimilar
 } from "@box/core";
 import type {
     Camera,
+    FilterKind,
     InkPoint,
     MenuItem,
     MenuSpec,
     WorkspaceFile,
 } from "@box/ui";
 import {
+    alignNodes,
     BoardView,
     BoxPanel,
+    CanvasFilter,
     ContextMenu,
     DEFAULT_CAMERA,
+    distributeNodes,
     FileTree,
     gridPlaceRect,
     Icon,
     ImageInspector,
+    matchNode,
     NotePanel,
     pathToPolygon,
     pointInPolygon,
@@ -63,6 +70,7 @@ import {
     Ribbon,
     screenToWorld,
     strokeToPath,
+    tidyGrid,
     translatePath,
     useBoxStore,
 } from "@box/ui";
@@ -327,6 +335,22 @@ export function App() {
   // to convert window coords into world space.
   const [menu, setMenu] = useState<MenuSpec | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  // Track 4: Canvas Search & Filter Overlay
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
+  const [filterKind, setFilterKind] = useState<FilterKind>("all");
+  const [filterMatchIdx, setFilterMatchIdx] = useState(0);
+
+  // Track 3: Local Semantic Intelligence Dialog
+  const [relatedDialog, setRelatedDialog] = useState<{
+    sourceNode: CanvasNode;
+    results: {
+      id: string;
+      name: string;
+      excerpt?: string | undefined;
+      score: number;
+    }[];
+  } | null>(null);
   const camRef = useRef<Camera>(DEFAULT_CAMERA);
   const vpElRef = useRef<HTMLDivElement | null>(null);
 
@@ -905,12 +929,31 @@ export function App() {
           (t.closest?.("[contenteditable='true']") ?? null) !== null)
       )
         return;
-      if (e.key === "Escape" && pickUp !== null) {
-        setPickUp(null);
-        return;
+      if (e.key === "Escape") {
+        if (pickUp !== null) {
+          setPickUp(null);
+          return;
+        }
+        if (filterOpen) {
+          setFilterOpen(false);
+          return;
+        }
+        if (relatedDialog !== null) {
+          setRelatedDialog(null);
+          return;
+        }
       }
       if (e.key === "!" && e.shiftKey && board !== null) {
         setFitAll({ nonce: Date.now() });
+        return;
+      }
+      if (
+        (e.key === "f" || e.key === "F") &&
+        (e.ctrlKey || e.metaKey) &&
+        board !== null
+      ) {
+        e.preventDefault();
+        setFilterOpen((v) => !v);
         return;
       }
       if (
@@ -943,7 +986,15 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pickUp, board, inkMode, inkMap, workspaceRoot]);
+  }, [
+    pickUp,
+    board,
+    filterOpen,
+    relatedDialog,
+    inkMode,
+    inkMap,
+    workspaceRoot,
+  ]);
 
   // FR-202: place a Box file at the current viewport center (the "+"
   // affordance) or at a dropped world point (pick-up click).
@@ -1014,6 +1065,158 @@ export function App() {
       serializeBoard(b),
     );
     gestureDirty.current = false;
+  };
+
+  // Track 4: Canvas Search & Filter Overlay logic
+  const matchedNodeIds = useMemo(() => {
+    if (!board) return [];
+    return board.nodes
+      .filter((n) => matchNode(n, filterQuery, filterKind, fileTexts))
+      .map((n) => n.id);
+  }, [board, filterQuery, filterKind, fileTexts]);
+
+  const dimmedNodes = useMemo(() => {
+    const hasActiveFilter =
+      filterOpen && (filterQuery.trim().length > 0 || filterKind !== "all");
+    if (!hasActiveFilter || !board) return undefined;
+    const matched = new Set(matchedNodeIds);
+    const dimmed = new Set<string>();
+    for (const n of board.nodes) {
+      if (!matched.has(n.id)) dimmed.add(n.id);
+    }
+    return dimmed;
+  }, [filterOpen, filterQuery, filterKind, board, matchedNodeIds]);
+
+  const nextFilterMatch = () => {
+    if (matchedNodeIds.length === 0) return;
+    const next = (filterMatchIdx + 1) % matchedNodeIds.length;
+    setFilterMatchIdx(next);
+    const nid = matchedNodeIds[next];
+    if (nid) setFocusNode({ id: nid, nonce: Date.now() });
+  };
+
+  const prevFilterMatch = () => {
+    if (matchedNodeIds.length === 0) return;
+    const prev =
+      (filterMatchIdx - 1 + matchedNodeIds.length) % matchedNodeIds.length;
+    setFilterMatchIdx(prev);
+    const nid = matchedNodeIds[prev];
+    if (nid) setFocusNode({ id: nid, nonce: Date.now() });
+  };
+
+  // Track 1: Layout & Tidy Tools (pure user-invoked, Invariant I-9 compliant)
+  const runAlign = async (
+    type: "left" | "centerX" | "right" | "top" | "centerY" | "bottom",
+    ids: string[],
+  ) => {
+    gestureDirty.current = false;
+    captureUndo();
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const nextNodes = alignNodes(b.nodes, ids, type);
+    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
+    gestureDirty.current = false;
+    await saveBoard();
+  };
+
+  const runDistribute = async (
+    axis: "horizontal" | "vertical",
+    ids: string[],
+  ) => {
+    gestureDirty.current = false;
+    captureUndo();
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const nextNodes = distributeNodes(b.nodes, ids, axis);
+    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
+    gestureDirty.current = false;
+    await saveBoard();
+  };
+
+  const runTidyGrid = async (ids: string[]) => {
+    gestureDirty.current = false;
+    captureUndo();
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const nextNodes = tidyGrid(b.nodes, ids);
+    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
+    gestureDirty.current = false;
+    await saveBoard();
+  };
+
+  // Track 3: Local Semantic Intelligence (ADR-0012)
+  const findRelated = async (sourceNode: CanvasNode) => {
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const candidates = b.nodes.filter((n) => n.id !== sourceNode.id);
+    if (candidates.length === 0) return;
+
+    const getNodeText = (n: CanvasNode): string => {
+      if (n.type === "text") return n.text;
+      if (n.type === "file")
+        return (fileTexts.get(n.file) ?? "") + " " + n.file;
+      if (n.type === "link") return (n.label ?? "") + " " + (n.url ?? "");
+      if (n.type === "group") return n.label ?? "";
+      return "";
+    };
+
+    const queryText = getNodeText(sourceNode);
+    if (!queryText.trim()) return;
+
+    const getVector = async (text: string): Promise<number[]> => {
+      try {
+        if (window.box?.decidePost) {
+          const body = JSON.stringify({
+            model: "bge-m3:latest",
+            prompt: text.slice(0, 1000),
+          });
+          const raw = await window.box.decidePost(
+            "http://127.0.0.1:11434/api/embeddings",
+            body,
+          );
+          const d = JSON.parse(raw) as { embedding?: number[] };
+          if (Array.isArray(d.embedding) && d.embedding.length > 0)
+            return d.embedding;
+        }
+      } catch {
+        // Local loopback offline fallback
+      }
+      return fallbackVector(text);
+    };
+
+    const queryVec = await getVector(queryText);
+    const candidateVecs = new Map<string, number[]>();
+    for (const c of candidates) {
+      const text = getNodeText(c);
+      if (text.trim().length > 0) {
+        candidateVecs.set(c.id, await getVector(text));
+      }
+    }
+
+    const matches = topKSimilar(queryVec, candidateVecs, 5, 0.15);
+    const results = matches.map((m) => {
+      const n = candidates.find((x) => x.id === m.id)!;
+      const rawLabel = (n as { label?: unknown }).label;
+      const labelStr = typeof rawLabel === "string" ? rawLabel : n.id;
+      const name: string =
+        n.type === "file"
+          ? n.file
+          : n.type === "text"
+            ? n.text.slice(0, 40) + "…"
+            : labelStr;
+      const excerpt = n.type === "file" ? fileTexts.get(n.file) : undefined;
+      return {
+        id: n.id,
+        name,
+        excerpt,
+        score: Math.round(m.score * 100),
+      };
+    });
+
+    setRelatedDialog({
+      sourceNode,
+      results,
+    });
   };
 
   // ADR-0007 v1: restore a captured snapshot through the normal board
@@ -1551,8 +1754,102 @@ export function App() {
     setMenu({ x: cx, y: cy, items });
   };
 
-  const nodeMenu = (node: CanvasNode, cx: number, cy: number) => {
+  const nodeMenu = (
+    node: CanvasNode,
+    cx: number,
+    cy: number,
+    selectedIds?: string[],
+  ) => {
     const items: MenuItem[] = [];
+    const multi = selectedIds && selectedIds.length >= 2 ? selectedIds : null;
+
+    if (multi) {
+      items.push(
+        {
+          label: "Align…",
+          icon: "box",
+          onPick: () => {
+            const alignSubmenu: MenuItem[] = [
+              {
+                label: "Align left",
+                onPick: () => void runAlign("left", multi),
+              },
+              {
+                label: "Align center (horizontal)",
+                onPick: () => void runAlign("centerX", multi),
+              },
+              {
+                label: "Align right",
+                onPick: () => void runAlign("right", multi),
+              },
+              {
+                label: "Align top",
+                onPick: () => void runAlign("top", multi),
+              },
+              {
+                label: "Align center (vertical)",
+                onPick: () => void runAlign("centerY", multi),
+              },
+              {
+                label: "Align bottom",
+                onPick: () => void runAlign("bottom", multi),
+              },
+            ];
+            setMenu({ x: cx, y: cy, items: alignSubmenu });
+          },
+        },
+        {
+          label: "Distribute…",
+          icon: "box",
+          disabled: multi.length < 3,
+          onPick: () => {
+            const distSubmenu: MenuItem[] = [
+              {
+                label: "Distribute horizontally",
+                onPick: () => void runDistribute("horizontal", multi),
+              },
+              {
+                label: "Distribute vertically",
+                onPick: () => void runDistribute("vertical", multi),
+              },
+            ];
+            setMenu({ x: cx, y: cy, items: distSubmenu });
+          },
+        },
+        {
+          label: "Tidy into grid",
+          icon: "grid",
+          onPick: () => void runTidyGrid(multi),
+        },
+        {
+          label: `Group ${multi.length} nodes`,
+          icon: "box",
+          hint: "ctrl+g",
+          onPick: () => void groupSelection(multi),
+        },
+        {
+          label: `Duplicate ${multi.length} nodes`,
+          icon: "filePlus",
+          hint: "ctrl+d",
+          onPick: () => void duplicateNodes(multi),
+        },
+        {
+          label: `Remove ${multi.length} from canvas`,
+          icon: "file",
+          danger: true,
+          hint: "del",
+          onPick: () => void deleteNodes(multi),
+        },
+      );
+    }
+
+    // Track 3: Local semantic intelligence
+    items.push({
+      label: "Find related notes",
+      icon: "search",
+      onPick: () => void findRelated(node),
+    });
+
     if (node.type === "file") {
       const file = node.file;
       const ext = `.${(file.split(".").pop() ?? "").toLowerCase()}`;
@@ -1938,6 +2235,7 @@ export function App() {
             key={boardPath}
             board={board}
             selectedEdge={edgeNote?.frontmatter["box-edge"] ?? null}
+            dimmedNodes={dimmedNodes}
             brokenNodes={brokenNodes}
             brokenEdges={remote?.brokenEdges}
             fileTexts={fileTexts}
@@ -2021,6 +2319,101 @@ export function App() {
               }}
             />
           )}
+          {filterOpen && (
+            <CanvasFilter
+              query={filterQuery}
+              onQueryChange={setFilterQuery}
+              selectedKind={filterKind}
+              onSelectKind={setFilterKind}
+              matchCount={matchedNodeIds.length}
+              totalCount={board.nodes.length}
+              activeIndex={filterMatchIdx}
+              onNextMatch={nextFilterMatch}
+              onPrevMatch={prevFilterMatch}
+              onClose={() => setFilterOpen(false)}
+            />
+          )}
+          {relatedDialog !== null && (
+            <div className="related-notes-dialog">
+              <div className="related-notes-header">
+                <span className="related-notes-title">
+                  <Icon name="search" size={16} />
+                  Related to{" "}
+                  {relatedDialog.sourceNode.type === "file"
+                    ? baseName(relatedDialog.sourceNode.file)
+                    : relatedDialog.sourceNode.id}
+                </span>
+                <button
+                  type="button"
+                  className="related-notes-close"
+                  onClick={() => setRelatedDialog(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="related-notes-list">
+                {relatedDialog.results.length === 0 ? (
+                  <div
+                    style={{
+                      color: "#8c97aa",
+                      fontSize: "12px",
+                      padding: "12px",
+                    }}
+                  >
+                    No strongly related notes found in this workspace.
+                  </div>
+                ) : (
+                  relatedDialog.results.map((r) => (
+                    <div key={r.id} className="related-note-item">
+                      <div className="related-note-info">
+                        <span className="related-note-name">{r.name}</span>
+                        {r.excerpt && (
+                          <span className="related-note-excerpt">
+                            {r.excerpt}
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                        }}
+                      >
+                        <span className="related-note-score">{r.score}%</span>
+                        <button
+                          type="button"
+                          className="btn-tiny"
+                          title="Center camera on note"
+                          onClick={() => {
+                            setFocusNode({ id: r.id, nonce: Date.now() });
+                          }}
+                        >
+                          Jump
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-tiny"
+                          title="Connect with arrow"
+                          onClick={() => {
+                            void createEdge(
+                              relatedDialog.sourceNode.id,
+                              r.id,
+                              "right",
+                              "left",
+                            );
+                            setRelatedDialog(null);
+                          }}
+                        >
+                          Link
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     ) : null;
@@ -2048,6 +2441,8 @@ export function App() {
         inkSize={inkSize}
         onInkSize={setInkSizePref}
         onZoomFit={() => setFitAll({ nonce: Date.now() })}
+        filterOpen={filterOpen}
+        onToggleFilter={() => setFilterOpen((v) => !v)}
         audioMode={audioMode}
         onAudioMode={setAudioModePref}
       />

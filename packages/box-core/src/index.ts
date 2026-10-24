@@ -14,6 +14,7 @@ export * from "./model/specImport.js";
 export * from "./model/syncState.js";
 export * from "./model/tombstones.js";
 export * from "./model/types.js";
+export * from "./semantic/similarity.js";
 export * from "./sync/edges.js";
 export * from "./sync/reconcile.js";
 export * from "./vault/scaffold.js";

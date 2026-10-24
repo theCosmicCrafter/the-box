@@ -20,6 +20,7 @@ my-world/                        the workspace: an ordinary folder, user-owned
 │                               (foreign `*.canvas` anywhere ingests in place - ADR-0009)
 │   ├── tombstones.json          pending-delete ledger (see 4.3; ADR-0011)
 │   ├── known.json               DERIVED CACHE (sync state & known notes; ADR-0011). Safe to delete.
+│   ├── embeddings.json          DERIVED CACHE (local vector index; ADR-0012). Safe to delete.
 │   └── settings.json            per-type open-with prefs, UI view state (non-truth)
 ├── concept.png                  user file: an object
 ├── concept.png.ink.svg          ink sidecar for concept.png

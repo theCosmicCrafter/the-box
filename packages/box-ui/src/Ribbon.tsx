@@ -33,6 +33,9 @@ export function Ribbon(props: {
   onToggleSidebar?: (() => void) | undefined;
   /** Zoom-to-fit the whole board (Obsidian: Shift+1). */
   onZoomFit?: (() => void) | undefined;
+  /** Canvas search and filter overlay toggle (Ctrl+F). */
+  filterOpen?: boolean | undefined;
+  onToggleFilter?: (() => void) | undefined;
   /** FR-306: spatial audio mode; click cycles off -> all -> viewport. */
   audioMode?: "off" | "all" | "viewport" | undefined;
   onAudioMode?: ((mode: "off" | "all" | "viewport") => void) | undefined;
@@ -156,6 +159,17 @@ export function Ribbon(props: {
               onClick={props.onZoomFit}
             >
               <Icon name="maximize" size={18} />
+            </button>
+          )}
+          {props.boardOpen && (
+            <button
+              className={
+                "ribbon-btn" + (props.filterOpen ? " ribbon-active" : "")
+              }
+              title="Search and filter canvas (Ctrl+F)"
+              onClick={props.onToggleFilter}
+            >
+              <Icon name="search" size={18} />
             </button>
           )}
           {props.boardOpen && (

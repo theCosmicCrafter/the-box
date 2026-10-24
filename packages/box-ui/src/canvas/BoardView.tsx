@@ -22,6 +22,8 @@ export interface BoardViewProps {
   board: Board;
   brokenNodes?: Set<string> | undefined;
   brokenEdges?: Set<string> | undefined;
+  /** Nodes that do not match the active filter query/kind (dimmed in view). */
+  dimmedNodes?: Set<string> | undefined;
   /** File path -> short text excerpt for document nodes. */
   fileTexts?: Map<string, string> | undefined;
   /** File path -> byte size for typed tiles. */
@@ -102,8 +104,15 @@ export interface BoardViewProps {
   onRevealFile?: (file: string) => void;
   /** Right-click on empty canvas (world + client coords for menus). */
   onCanvasMenu?: (wx: number, wy: number, cx: number, cy: number) => void;
-  /** Right-click on a node (client coords for menus). */
-  onNodeMenu?: (node: CanvasNode, cx: number, cy: number) => void;
+  /** Right-click on a node (client coords for menus, and currently selected IDs). */
+  onNodeMenu?: (
+    node: CanvasNode,
+    cx: number,
+    cy: number,
+    selectedIds?: string[],
+  ) => void;
+  /** Selection changes (node ids). */
+  onSelectionChange?: (selectedIds: string[]) => void;
   /** Camera stream - the platform needs live camera for OS-drop->world. */
   onCameraChange?: (cam: Camera) => void;
   /** External ref to the viewport element (for drop coord conversion). */
@@ -238,6 +247,21 @@ export function BoardView(props: BoardViewProps) {
       setSelectedEdge(props.selectedEdge);
     }
   }, [props.selectedEdge]);
+
+  useEffect(() => {
+    props.onSelectionChange?.([...sel]);
+  }, [sel, props.onSelectionChange]);
+
+  const dimmedEdges = useMemo(() => {
+    if (!props.dimmedNodes || props.dimmedNodes.size === 0) return undefined;
+    const dimmed = new Set<string>();
+    for (const e of props.board.edges) {
+      if (props.dimmedNodes.has(e.fromNode) || props.dimmedNodes.has(e.toNode)) {
+        dimmed.add(e.id);
+      }
+    }
+    return dimmed;
+  }, [props.dimmedNodes, props.board.edges]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [retarget, setRetarget] = useState<Retarget | null>(null);
   const [inkDraft, setInkDraft] = useState<{
@@ -400,8 +424,14 @@ export function BoardView(props: BoardViewProps) {
       onInspect: (id: string) => propsRef.current.onInspectNode?.(id),
       onOpenExternal: (rel: string) => propsRef.current.onOpenFile?.(rel),
       onReveal: (rel: string) => propsRef.current.onRevealFile?.(rel),
-      onContextMenu: (n: CanvasNode, cx: number, cy: number) =>
-        propsRef.current.onNodeMenu?.(n, cx, cy),
+      onContextMenu: (n: CanvasNode, cx: number, cy: number) => {
+        let activeSel = selRef.current;
+        if (!activeSel.has(n.id)) {
+          activeSel = new Set([n.id]);
+          setSel(activeSel);
+        }
+        propsRef.current.onNodeMenu?.(n, cx, cy, [...activeSel]);
+      },
       onDraftStart: (nodeId: string, side: Side) => {
         const n = nodeById(nodeId);
         if (!n) return;
@@ -768,6 +798,7 @@ export function BoardView(props: BoardViewProps) {
         board={props.board}
         brokenEdges={brokenEdges}
         selectedId={selectedEdge}
+        dimmedEdges={dimmedEdges}
         viewRect={view ?? undefined}
         zoom={cam.z}
         onSelect={(id) => {
@@ -796,6 +827,7 @@ export function BoardView(props: BoardViewProps) {
                 : "full"
             }
             selected={sel.has(n.id)}
+            dimmed={props.dimmedNodes?.has(n.id)}
             broken={brokenNodes.has(n.id)}
             dropTarget={draft?.overId === n.id}
             resolveMedia={props.resolveMedia}

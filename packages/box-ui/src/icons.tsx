@@ -28,6 +28,8 @@ export type IconName =
   | "move"
   | "maximize"
   | "volume"
+  | "search"
+  | "grid"
   | "box";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -189,6 +191,20 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
       <path d="M3 16v3a2 2 0 0 0 2 2h3" />
       <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </>
+  ),
+  grid: (
+    <>
+      <rect width="7" height="7" x="3" y="3" rx="1" />
+      <rect width="7" height="7" x="14" y="3" rx="1" />
+      <rect width="7" height="7" x="14" y="14" rx="1" />
+      <rect width="7" height="7" x="3" y="14" rx="1" />
     </>
   ),
 };

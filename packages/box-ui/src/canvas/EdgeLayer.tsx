@@ -71,6 +71,7 @@ export interface EdgeLayerProps {
   board: Board;
   brokenEdges: Set<string>;
   selectedId?: string | null;
+  dimmedEdges?: Set<string> | undefined;
   onSelect?: (edgeId: string | null) => void;
   draft?: DraftEdge | null;
   /** World-space viewport rect; off-view edges get display:none (culled). */
@@ -87,6 +88,7 @@ export function EdgeLayer({
   board,
   brokenEdges,
   selectedId,
+  dimmedEdges,
   onSelect,
   draft,
   viewRect,
@@ -164,35 +166,38 @@ export function EdgeLayer({
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
       </defs>
-      {paths.map(({ e, d, mid, broken }) => (
-        <g key={e.id}>
-          <path
-            d={d}
-            className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""}`}
-            markerStart={marker(e.fromEnd, broken)}
-            markerEnd={marker(e.toEnd, broken)}
-          />
-          {onSelect !== undefined && interactive && (
+      {paths.map(({ e, d, mid, broken }) => {
+        const isDimmed = dimmedEdges?.has(e.id) ?? false;
+        return (
+          <g key={e.id}>
             <path
               d={d}
-              className="edge-hit"
-              onPointerDown={(ev) => {
-                ev.stopPropagation();
-                onSelect(e.id);
-              }}
+              className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""} ${isDimmed ? "edge-dimmed" : ""}`}
+              markerStart={marker(e.fromEnd, broken)}
+              markerEnd={marker(e.toEnd, broken)}
             />
-          )}
-          {typeof e.label === "string" && e.label !== "" && (
-            <text
-              className={`edge-label ${selectedId === e.id ? "selected" : ""}`}
-              x={mid.x}
-              y={mid.y}
-            >
-              {e.label}
-            </text>
-          )}
-        </g>
-      ))}
+            {onSelect !== undefined && interactive && (
+              <path
+                d={d}
+                className="edge-hit"
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  onSelect(e.id);
+                }}
+              />
+            )}
+            {typeof e.label === "string" && e.label !== "" && (
+              <text
+                className={`edge-label ${selectedId === e.id ? "selected" : ""} ${isDimmed ? "edge-dimmed" : ""}`}
+                x={mid.x}
+                y={mid.y}
+              >
+                {e.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
       {draft && (
         <path
           d={edgePathD(draft.from, draft.to)}

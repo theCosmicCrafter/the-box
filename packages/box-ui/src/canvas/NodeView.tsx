@@ -63,6 +63,7 @@ export interface NodeViewProps {
    * every node each frame; handlers read `.current` at event time. */
   cameraRef: React.RefObject<Camera>;
   selected: boolean;
+  dimmed?: boolean | undefined;
   broken: boolean;
   dropTarget?: boolean;
   /** Off-viewport: display:none (tldraw culling - stays in DOM, no paint). */
@@ -787,6 +788,7 @@ export const NodeView = memo(function NodeView(props: NodeViewProps) {
     "node",
     `node-${node.type}`,
     props.selected ? "selected" : "",
+    props.dimmed ? "node-dimmed" : "",
     props.broken ? "broken" : "",
     props.dropTarget ? "drop-target" : "",
     tint !== null ? "tinted" : "",
