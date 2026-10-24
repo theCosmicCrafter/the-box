@@ -9,6 +9,7 @@
 
 import type { Board, CanvasEdge, CanvasNode, Side } from "@box/core";
 import { edgeVisible, type WorldRect } from "./cull.js";
+import { NODE_COLOR_PRESETS, nodeTint } from "./NodeView.js";
 
 export const NORMALS: Record<Side, { nx: number; ny: number }> = {
   top: { nx: 0, ny: -1 },
@@ -133,8 +134,16 @@ export function EdgeLayer({
     ];
   });
 
-  const marker = (end: CanvasEdge["fromEnd"], broken: boolean) =>
-    end === "arrow" ? `url(#arrowhead${broken ? "-broken" : ""})` : undefined;
+  const marker = (
+    end: CanvasEdge["fromEnd"],
+    broken: boolean,
+    color?: string,
+  ) => {
+    if (end !== "arrow") return undefined;
+    if (broken) return "url(#arrowhead-broken)";
+    if (color && NODE_COLOR_PRESETS[color]) return `url(#arrowhead-${color})`;
+    return "url(#arrowhead)";
+  };
 
   return (
     <svg
@@ -165,16 +174,41 @@ export function EdgeLayer({
         >
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
+        {Object.entries(NODE_COLOR_PRESETS).map(([k, hex]) => (
+          <marker
+            key={k}
+            id={`arrowhead-${k}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={hex} />
+          </marker>
+        ))}
       </defs>
       {paths.map(({ e, d, mid, broken }) => {
         const isDimmed = dimmedEdges?.has(e.id) ?? false;
+        const tint = nodeTint(e.color);
+        const dash =
+          e.lineStyle === "dashed"
+            ? "6 4"
+            : e.lineStyle === "dotted"
+              ? "2 3"
+              : undefined;
         return (
           <g key={e.id}>
             <path
               d={d}
               className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""} ${isDimmed ? "edge-dimmed" : ""}`}
-              markerStart={marker(e.fromEnd, broken)}
-              markerEnd={marker(e.toEnd, broken)}
+              style={{
+                stroke: tint ?? undefined,
+                strokeDasharray: dash,
+              }}
+              markerStart={marker(e.fromEnd, broken, e.color)}
+              markerEnd={marker(e.toEnd, broken, e.color)}
             />
             {onSelect !== undefined && interactive && (
               <path

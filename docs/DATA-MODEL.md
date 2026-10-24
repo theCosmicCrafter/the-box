@@ -144,6 +144,7 @@ node with no `box-placement` and no spec coords on any board is unplaced
 | `fromSide`, `toSide` | string      | no       | -       | `top\|right\|bottom\|left`       |                                      |
 | `fromEnd`            | string      | no       | `none`  | `none\|arrow`                    | spec default `none`                  |
 | `toEnd`              | string      | no       | `arrow` | `none\|arrow`                    | spec default `arrow`                 |
+| `lineStyle`          | string      | no       | `solid` | `solid\|dashed\|dotted`          | ADR-0013 visual edge style           |
 | `color`              | canvasColor | no       | -       |                                  |                                      |
 | `label`              | string      | no       | -       | short inline label               | full documentation lives in the note |
 | `box-link`           | string      | yes      | -       | `^link-[0-9a-f]{16}\.md$`        | the note file backing this edge      |

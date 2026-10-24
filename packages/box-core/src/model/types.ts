@@ -64,12 +64,13 @@ export interface CanvasEdge {
   id: string; // 16 lowercase hex; equals link-note filename slug
   fromNode: string;
   toNode: string;
-  fromSide?: Side;
-  toSide?: Side;
-  fromEnd?: EndStyle;
-  toEnd?: EndStyle;
-  color?: string;
-  label?: string;
+  fromSide?: Side | undefined;
+  toSide?: Side | undefined;
+  fromEnd?: EndStyle | undefined;
+  toEnd?: EndStyle | undefined;
+  lineStyle?: ("solid" | "dashed" | "dotted") | undefined;
+  color?: string | undefined;
+  label?: string | undefined;
   "box-link": string; // `link-<edgeid>.md` - required; unbacked edges are malformed
   [extra: string]: unknown;
 }

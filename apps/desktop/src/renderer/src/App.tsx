@@ -58,8 +58,11 @@ import {
     ContextMenu,
     DEFAULT_CAMERA,
     distributeNodes,
+    exportBoardToSvg,
+    exportSvgToPngBlob,
     FileTree,
     gridPlaceRect,
+    HelpModal,
     Icon,
     ImageInspector,
     matchNode,
@@ -70,8 +73,10 @@ import {
     Ribbon,
     screenToWorld,
     strokeToPath,
+    TabBar,
     tidyGrid,
     translatePath,
+    triggerDownload,
     useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -351,6 +356,23 @@ export function App() {
       score: number;
     }[];
   } | null>(null);
+
+  // ADR-0013: Workstation features (Export, HelpModal, Tabs, Edge Styling, Recents)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"png" | "svg">("png");
+  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
+  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
+    try {
+      return JSON.parse(
+        localStorage.getItem("box.recentWorkspaces") || "[]",
+      ) as string[];
+    } catch {
+      return [];
+    }
+  });
+
   const camRef = useRef<Camera>(DEFAULT_CAMERA);
   const vpElRef = useRef<HTMLDivElement | null>(null);
 
@@ -391,6 +413,19 @@ export function App() {
     const r = await window.box.openWorkspace();
     if (r) {
       setWorkspace(r.root, r.files);
+      const nextRecents = [
+        r.root,
+        ...recentWorkspaces.filter((p) => p !== r.root),
+      ].slice(0, 5);
+      setRecentWorkspaces(nextRecents);
+      try {
+        localStorage.setItem(
+          "box.recentWorkspaces",
+          JSON.stringify(nextRecents),
+        );
+      } catch {
+        // ignore quota / restricted storage
+      }
       const w = await window.box.watchWorkspace(r.root);
       await loadPrefs(r.root);
       await openFirstBoard(r.files, r.root);
@@ -930,6 +965,14 @@ export function App() {
       )
         return;
       if (e.key === "Escape") {
+        if (helpOpen) {
+          setHelpOpen(false);
+          return;
+        }
+        if (exportOpen) {
+          setExportOpen(false);
+          return;
+        }
         if (pickUp !== null) {
           setPickUp(null);
           return;
@@ -942,6 +985,21 @@ export function App() {
           setRelatedDialog(null);
           return;
         }
+      }
+      if (e.key === "?" || e.key === "F1") {
+        e.preventDefault();
+        setHelpOpen((v) => !v);
+        return;
+      }
+      if (
+        (e.key === "e" || e.key === "E") &&
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        board !== null
+      ) {
+        e.preventDefault();
+        setExportOpen(true);
+        return;
       }
       if (e.key === "!" && e.shiftKey && board !== null) {
         setFitAll({ nonce: Date.now() });
@@ -991,6 +1049,8 @@ export function App() {
     board,
     filterOpen,
     relatedDialog,
+    helpOpen,
+    exportOpen,
     inkMode,
     inkMap,
     workspaceRoot,
@@ -1087,6 +1147,16 @@ export function App() {
     return dimmed;
   }, [filterOpen, filterQuery, filterKind, board, matchedNodeIds]);
 
+  // ADR-0013: Multi-board tabs
+  const boardTabs = useMemo(() => {
+    return files
+      .filter((f) => f.path.endsWith(".canvas"))
+      .map((f) => ({
+        path: f.path,
+        name: f.path.split("/").pop()?.replace(/\.canvas$/, "") ?? f.path,
+      }));
+  }, [files]);
+
   const nextFilterMatch = () => {
     if (matchedNodeIds.length === 0) return;
     const next = (filterMatchIdx + 1) % matchedNodeIds.length;
@@ -1142,6 +1212,38 @@ export function App() {
     useBoxStore.getState().restoreBoard(nextNodes, b.edges);
     gestureDirty.current = false;
     await saveBoard();
+  };
+
+  // ADR-0013: Edge visual styling & Canvas high-res export
+  const handleUpdateEdge = async (updates: Partial<CanvasEdge>) => {
+    const b = useBoxStore.getState().board;
+    if (!b || !edgeNote) return;
+    const eid = edgeNote.frontmatter["box-edge"];
+    updateEdge(eid, updates);
+    await saveBoard();
+  };
+
+  const handleExport = async () => {
+    const b = useBoxStore.getState().board;
+    if (!b) return;
+    const bName =
+      boardPath?.split("/").pop()?.replace(/\.canvas$/, "") ?? "canvas-export";
+    const nodeIds =
+      exportScope === "selected" && selectedNodeIds.length > 0
+        ? selectedNodeIds
+        : undefined;
+    const svg = exportBoardToSvg(b, {
+      nodeIds,
+      padding: 40,
+      background: "#0e1117",
+    });
+    if (exportFormat === "svg") {
+      triggerDownload(svg, `${bName}.svg`);
+    } else {
+      const blob = await exportSvgToPngBlob(svg, 2);
+      triggerDownload(blob, `${bName}.png`);
+    }
+    setExportOpen(false);
   };
 
   // Track 3: Local Semantic Intelligence (ADR-0012)
@@ -2277,6 +2379,7 @@ export function App() {
             }
             onDeleteEdge={(id) => void deleteEdge(id)}
             onSelectEdge={(id) => void selectEdge(id)}
+            onSelectionChange={setSelectedNodeIds}
             onDropFile={(p, x, y) => void placeFile(p, x, y)}
             onEmptyDoubleClick={(x, y) => void createTextNode(x, y)}
             onCanvasMenu={canvasMenu}
@@ -2306,8 +2409,12 @@ export function App() {
           {edgeNote && (
             <NotePanel
               note={edgeNote}
+              edge={board.edges.find(
+                (e) => e.id === edgeNote.frontmatter["box-edge"],
+              )}
               stale={noteStale}
               onSave={(n) => void saveNote(n)}
+              onUpdateEdge={(u) => void handleUpdateEdge(u)}
               onClose={() => setEdgeNote(null)}
               onDirtyChange={(d) => {
                 noteDirty.current = d;
@@ -2443,6 +2550,8 @@ export function App() {
         onZoomFit={() => setFitAll({ nonce: Date.now() })}
         filterOpen={filterOpen}
         onToggleFilter={() => setFilterOpen((v) => !v)}
+        onExport={() => setExportOpen(true)}
+        onHelp={() => setHelpOpen(true)}
         audioMode={audioMode}
         onAudioMode={setAudioModePref}
       />
@@ -2502,6 +2611,20 @@ export function App() {
         </aside>
       )}
       <div className="wb-content">
+        {boardTabs.length > 0 && (
+          <TabBar
+            boards={boardTabs}
+            activeBoardPath={boardPath}
+            onSelectBoard={(p) => void loadBoardFile(p)}
+            onCloseBoard={(p) => {
+              if (p === boardPath) closeBoard();
+            }}
+            onNewBoard={() => {
+              setSidebarOpen(true);
+              requestAnimationFrame(() => newBoardInput.current?.focus());
+            }}
+          />
+        )}
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
         {pickUp !== null && (
           <div
@@ -2555,6 +2678,97 @@ export function App() {
             onPick={(p) => void quickOpenPick(p)}
             onClose={() => setQuickOpen(false)}
           />
+        )}
+        <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+        {exportOpen && board !== null && (
+          <div
+            className="help-modal-backdrop"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setExportOpen(false);
+            }}
+          >
+            <div className="export-modal">
+              <h3>
+                <Icon name="camera" size={18} />
+                Export Canvas Snapshot
+              </h3>
+              <div className="export-options">
+                <div className="export-row">
+                  <span>Format:</span>
+                  <div className="note-edge-pills">
+                    <button
+                      type="button"
+                      className={
+                        "note-pill" + (exportFormat === "png" ? " active" : "")
+                      }
+                      onClick={() => setExportFormat("png")}
+                    >
+                      PNG (High-Res 2x)
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "note-pill" + (exportFormat === "svg" ? " active" : "")
+                      }
+                      onClick={() => setExportFormat("svg")}
+                    >
+                      SVG (Vector)
+                    </button>
+                  </div>
+                </div>
+                <div className="export-row">
+                  <span>Scope:</span>
+                  <div className="note-edge-pills">
+                    <button
+                      type="button"
+                      className={
+                        "note-pill" + (exportScope === "all" ? " active" : "")
+                      }
+                      onClick={() => setExportScope("all")}
+                    >
+                      All ({board.nodes.length} nodes)
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "note-pill" +
+                        (exportScope === "selected" ? " active" : "") +
+                        (selectedNodeIds.length === 0 ? " disabled" : "")
+                      }
+                      disabled={selectedNodeIds.length === 0}
+                      onClick={() => setExportScope("selected")}
+                    >
+                      Selection ({selectedNodeIds.length} nodes)
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="export-actions">
+                <button
+                  type="button"
+                  className="btn-tiny"
+                  style={{ padding: "6px 12px" }}
+                  onClick={() => setExportOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-tiny"
+                  style={{
+                    padding: "6px 14px",
+                    background: "#2563eb",
+                    borderColor: "#3b82f6",
+                    color: "#ffffff",
+                    fontWeight: 600,
+                  }}
+                  onClick={() => void handleExport()}
+                >
+                  Download {exportFormat.toUpperCase()}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </main>

@@ -36,6 +36,10 @@ export function Ribbon(props: {
   /** Canvas search and filter overlay toggle (Ctrl+F). */
   filterOpen?: boolean | undefined;
   onToggleFilter?: (() => void) | undefined;
+  /** Canvas export snapshot (Ctrl+Shift+E). */
+  onExport?: (() => void) | undefined;
+  /** Help and shortcut cheatsheet modal (? / F1). */
+  onHelp?: (() => void) | undefined;
   /** FR-306: spatial audio mode; click cycles off -> all -> viewport. */
   audioMode?: "off" | "all" | "viewport" | undefined;
   onAudioMode?: ((mode: "off" | "all" | "viewport") => void) | undefined;
@@ -174,6 +178,15 @@ export function Ribbon(props: {
           )}
           {props.boardOpen && (
             <button
+              className="ribbon-btn"
+              title="Export canvas snapshot (Ctrl+Shift+E)"
+              onClick={props.onExport}
+            >
+              <Icon name="camera" size={18} />
+            </button>
+          )}
+          {props.boardOpen && (
+            <button
               className={
                 "ribbon-btn" +
                 (props.audioMode !== undefined && props.audioMode !== "off"
@@ -203,6 +216,16 @@ export function Ribbon(props: {
           >
             <Icon name="panelLeft" size={18} />
           </button>
+          <div style={{ marginTop: "auto" }}>
+            <button
+              type="button"
+              className="ribbon-btn"
+              title="Keyboard shortcuts & help (? / F1)"
+              onClick={props.onHelp}
+            >
+              <Icon name="help" size={18} />
+            </button>
+          </div>
         </>
       )}
     </nav>
