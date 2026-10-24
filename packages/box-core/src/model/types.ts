@@ -117,6 +117,13 @@ export interface InkSidecar {
   strokes: InkStroke[];
 }
 
+// ---- tombstones (DATA-MODEL §4.3, ADR-0011) ----
+
+export interface TombstoneRecord {
+  edgeId: string;
+  at: number; // Unix epoch ms
+}
+
 // ---- write plans (all file mutations flow through these) ----
 
 export type WriteStep =

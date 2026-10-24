@@ -125,6 +125,31 @@ fn write_atomic_escapes_and_lands() {
     assert_eq!(fs::read_to_string(root.join("a/b/c.txt")).unwrap(), "v2");
 }
 
+#[test]
+fn read_batch_reads_multiple_files_and_flags_missing() {
+    let root = tmpdir("batch");
+    fs::write(root.join("f1.txt"), "hello").unwrap();
+    fs::write(root.join("f2.txt"), "world").unwrap();
+
+    let rels = vec![
+        "f1.txt".to_string(),
+        "f2.txt".to_string(),
+        "missing.txt".to_string(),
+        "../escaped.txt".to_string(),
+    ];
+    let mut out = HashMap::new();
+    for rel in rels {
+        let content = resolve_inside(&root, &rel)
+            .and_then(|abs| fs::read(abs).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        out.insert(rel, content);
+    }
+    assert_eq!(out.get("f1.txt").unwrap().as_deref(), Some("hello"));
+    assert_eq!(out.get("f2.txt").unwrap().as_deref(), Some("world"));
+    assert_eq!(*out.get("missing.txt").unwrap(), None);
+    assert_eq!(*out.get("../escaped.txt").unwrap(), None);
+}
+
 // -- tombstone ledger: corrupt input must not wedge sync --
 
 #[test]
@@ -134,18 +159,140 @@ fn tombstone_survives_corrupt_ledger() {
     fs::write(root.join(".box/tombstones.json"), "{not json").unwrap();
     assert!(append_tombstone(&root, "edge1").is_ok());
     let raw = fs::read_to_string(root.join(".box/tombstones.json")).unwrap();
-    let ids: Vec<String> = serde_json::from_str(&raw).unwrap();
-    assert_eq!(ids, ["edge1"]);
+    let records: Vec<TombstoneRecord> = serde_json::from_str(&raw).unwrap();
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].edge_id, "edge1");
+    assert!(records[0].at > 0);
     // dedupe
     assert!(append_tombstone(&root, "edge1").is_ok());
     assert!(append_tombstone(&root, "edge2").is_ok());
-    let ids: Vec<String> =
+    let records: Vec<TombstoneRecord> =
         serde_json::from_str(&fs::read_to_string(root.join(".box/tombstones.json")).unwrap())
             .unwrap();
+    let ids: Vec<&str> = records.iter().map(|r| r.edge_id.as_str()).collect();
     assert_eq!(ids, ["edge1", "edge2"]);
 }
 
+#[test]
+fn tombstone_prunes_expired_entries() {
+    let root = tmpdir("tomb-expire");
+    fs::create_dir_all(root.join(".box")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let expired_at = now.saturating_sub(TOMBSTONE_TTL_MS + 10_000);
+    let fresh_at = now.saturating_sub(60_000);
+
+    let seed = serde_json::json!([
+        { "edgeId": "expired1", "at": expired_at },
+        { "edgeId": "fresh1", "at": fresh_at }
+    ]);
+    fs::write(root.join(".box/tombstones.json"), seed.to_string()).unwrap();
+
+    assert!(append_tombstone(&root, "edge3").is_ok());
+    let records: Vec<TombstoneRecord> =
+        serde_json::from_str(&fs::read_to_string(root.join(".box/tombstones.json")).unwrap())
+            .unwrap();
+    let ids: Vec<&str> = records.iter().map(|r| r.edge_id.as_str()).collect();
+    assert_eq!(ids, ["edge3", "fresh1"]);
+}
+
+#[test]
+fn tombstone_migrates_legacy_string_array() {
+    let root = tmpdir("tomb-migrate");
+    fs::create_dir_all(root.join(".box")).unwrap();
+    fs::write(
+        root.join(".box/tombstones.json"),
+        r#"["legacy1", "legacy2"]"#,
+    )
+    .unwrap();
+
+    assert!(append_tombstone(&root, "edge3").is_ok());
+    let records: Vec<TombstoneRecord> =
+        serde_json::from_str(&fs::read_to_string(root.join(".box/tombstones.json")).unwrap())
+            .unwrap();
+    let ids: Vec<&str> = records.iter().map(|r| r.edge_id.as_str()).collect();
+    assert_eq!(ids, ["edge3", "legacy1", "legacy2"]);
+    for r in records {
+        assert!(r.at > 0);
+    }
+}
+
 // -- mime_for: deliberate map, unknowns -> octet-stream --
+
+#[test]
+fn tombstone_never_clobbers_ledger_on_unreadable_read() {
+    // A read failure that is neither "missing" nor "undecodable" (share lock,
+    // permissions) must surface as an error, not as an empty ledger that the
+    // following write would persist over every recorded tombstone. A
+    // directory squatting on the ledger path forces a non-NotFound read error.
+    let root = tmpdir("tomb-unreadable");
+    fs::create_dir_all(root.join(".box/tombstones.json")).unwrap();
+    assert!(append_tombstone(&root, "edge1").is_err());
+    assert!(root.join(".box/tombstones.json").is_dir());
+}
+
+#[test]
+fn debounce_flushes_during_a_sustained_stream() {
+    // DATA-MODEL 5.2: the window extends while events keep arriving but is
+    // capped. A stream that never goes quiet must still flush repeatedly;
+    // the uncapped loop never emitted at all until the stream stopped.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let (tx, rx) = channel::<()>();
+    let emits = Arc::new(AtomicUsize::new(0));
+    let emits2 = Arc::clone(&emits);
+    let worker = std::thread::spawn(move || {
+        debounce_events(
+            &rx,
+            Duration::from_millis(60),
+            Duration::from_millis(200),
+            || {
+                emits2.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    });
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_millis(900) {
+        tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(10)); // always < quiet window
+    }
+    let during = emits.load(Ordering::SeqCst);
+    drop(tx);
+    worker.join().unwrap();
+    assert!(
+        during >= 3,
+        "expected capped flushes mid-stream, got {during}"
+    );
+}
+
+#[test]
+fn debounce_coalesces_a_short_burst_into_one_emit() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    let (tx, rx) = channel::<()>();
+    let emits = Arc::new(AtomicUsize::new(0));
+    let emits2 = Arc::clone(&emits);
+    let worker = std::thread::spawn(move || {
+        debounce_events(
+            &rx,
+            Duration::from_millis(80),
+            Duration::from_secs(2),
+            || {
+                emits2.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    });
+    for _ in 0..20 {
+        tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    std::thread::sleep(Duration::from_millis(300)); // quiet -> flush
+    drop(tx);
+    worker.join().unwrap();
+    assert_eq!(emits.load(Ordering::SeqCst), 1);
+}
 
 #[test]
 fn mime_map_covers_media_and_defaults() {
@@ -209,6 +356,49 @@ fn range_attacks() {
     let r = mime_and_body(&f, None).unwrap();
     assert_eq!(r.status(), 200);
     assert_eq!(r.body().len(), 10);
+}
+
+#[test]
+fn box_protocol_uri_decoding_and_boundary_attacks() {
+    let root = tmpdir("protocol");
+    let test_file = root.join("my image (1)#2+c.png");
+    fs::write(&test_file, b"image-bytes").unwrap();
+
+    // 1. Valid encoded path with special characters (spaces, parens, hash, plus)
+    let raw_path = "/f/my%20image%20(1)%232%2Bc.png?v=1729684800";
+    let path = raw_path.split('?').next().unwrap_or(raw_path);
+    let rel_enc = path
+        .strip_prefix("/f/")
+        .unwrap_or(path.trim_start_matches('/'));
+    let rel = percent_encoding::percent_decode_str(rel_enc)
+        .decode_utf8_lossy()
+        .to_string();
+    assert_eq!(rel, "my image (1)#2+c.png");
+    let abs = resolve_inside(&root, &rel);
+    assert_eq!(abs, Some(test_file));
+
+    // 2. Traversal attack with percent encoding
+    let attack_path = "/f/%2E%2E%2Fsecret.txt";
+    let path2 = attack_path.split('?').next().unwrap_or(attack_path);
+    let rel_enc2 = path2
+        .strip_prefix("/f/")
+        .unwrap_or(path2.trim_start_matches('/'));
+    let rel2 = percent_encoding::percent_decode_str(rel_enc2)
+        .decode_utf8_lossy()
+        .to_string();
+    assert_eq!(rel2, "../secret.txt");
+    assert_eq!(resolve_inside(&root, &rel2), None);
+
+    // 3. Null byte injection
+    let null_attack = "/f/image.png%00.exe";
+    let path3 = null_attack.split('?').next().unwrap_or(null_attack);
+    let rel_enc3 = path3
+        .strip_prefix("/f/")
+        .unwrap_or(path3.trim_start_matches('/'));
+    let rel3 = percent_encoding::percent_decode_str(rel_enc3)
+        .decode_utf8_lossy()
+        .to_string();
+    assert_eq!(resolve_inside(&root, &rel3), None);
 }
 
 // -- scan: skip rules + nested + mtime sanity --
@@ -457,6 +647,29 @@ fn decide_post_allowlist_is_loopback_only() {
     assert!(!is_loopback_url("ftp://127.0.0.1/x"));
     assert!(!is_loopback_url("http://localhost.evil/x"));
     assert!(!is_loopback_url(""));
+}
+
+#[test]
+fn decide_post_allowlist_rejects_userinfo_and_port_smuggling() {
+    // `user:pass@host` makes "127.0.0.1:8770" the *userinfo*; the real
+    // host is whatever follows '@'. A prefix-only check passes all of these
+    // while ureq connects to the external host (zero-cloud breach).
+    assert!(!is_loopback_url("http://127.0.0.1:8770@evil.com/x"));
+    assert!(!is_loopback_url("http://localhost:80@evil.com"));
+    assert!(!is_loopback_url("http://[::1]:11434@evil.com/api"));
+    // '@' after the path is legal path text and stays on loopback.
+    assert!(is_loopback_url("http://127.0.0.1:8770/x@evil.com"));
+    // malformed / non-numeric / oversized ports and backslash authority tricks
+    assert!(!is_loopback_url("http://localhost:evil.com/x"));
+    assert!(!is_loopback_url("http://127.0.0.1:/x"));
+    assert!(!is_loopback_url("http://127.0.0.1:999999/x"));
+    assert!(!is_loopback_url("http://127.0.0.1:80\\@evil.com/"));
+    assert!(!is_loopback_url("http://127.0.0.1\\@evil.com/"));
+    // bare hosts, query and fragment terminators, case-insensitive localhost
+    assert!(is_loopback_url("http://127.0.0.1"));
+    assert!(is_loopback_url("http://127.0.0.1?x=1"));
+    assert!(is_loopback_url("http://LOCALHOST:8770/x"));
+    assert!(!is_loopback_url("http://127.0.0.2:8770/x"));
 }
 
 #[test]

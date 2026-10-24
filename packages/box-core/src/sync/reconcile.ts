@@ -78,7 +78,7 @@ function stubNote(
       ...(typeof edge.label === "string" && edge.label !== ""
         ? { type: edge.label }
         : {}),
-      created: new Date(0).toISOString(),
+      created: new Date().toISOString(),
     },
     body: "",
   };
@@ -275,21 +275,27 @@ export function reconcile(scan: WorkspaceScan): ReconcileReport {
       problems.push(...res.problems);
       continue;
     }
-    const note = res.value;
-    const edgeId = note.frontmatter["box-edge"];
+    if (res.problems.length > 0) {
+      problems.push(...res.problems);
+    }
+    let note = res.value;
+    let edgeId = note.frontmatter["box-edge"];
     const slug = edgeIdFromNoteName(baseName(notePath));
     if (slug !== null && slug !== edgeId) {
-      // filename!=box-edge: rename the file back to its slug (§3.1 repair)
-      const dir = notePath.slice(
-        0,
-        notePath.length - baseName(notePath).length,
-      );
+      // ERR-3: filename!=box-edge: repair frontmatter box-edge to match filename (filename is identity, DATA-MODEL §3.1 & §9)
+      note = {
+        ...note,
+        frontmatter: {
+          ...note.frontmatter,
+          "box-edge": slug,
+        },
+      };
       steps.push({
         op: "write-atomic",
-        path: `${dir}${linkNoteName(edgeId)}`,
+        path: notePath,
         content: serializeLinkNote(note),
       });
-      steps.push({ op: "trash", path: notePath });
+      edgeId = slug;
     }
     if (scan.tombstones.has(edgeId)) {
       // R-D: complete a crashed delete

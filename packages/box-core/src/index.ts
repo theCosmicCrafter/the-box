@@ -11,6 +11,8 @@ export * from "./model/linkNote.js";
 export * from "./model/oplog.js";
 export * from "./model/paths.js";
 export * from "./model/specImport.js";
+export * from "./model/syncState.js";
+export * from "./model/tombstones.js";
 export * from "./model/types.js";
 export * from "./sync/edges.js";
 export * from "./sync/reconcile.js";

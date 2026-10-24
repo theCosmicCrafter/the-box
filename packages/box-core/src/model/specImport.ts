@@ -31,6 +31,28 @@ export interface SpecImport {
 
 export type SpecImportResult = SpecImport | { error: string };
 
+/**
+ * True once a board file carries our format marker. A `.canvas` without it
+ * is a foreign spec file that has not been normalized yet (ADR-0009).
+ */
+export function hasBoxFormatMarker(raw: string): boolean {
+  return raw.includes('"box-format"');
+}
+
+/**
+ * Which workspace files the sync scan must parse as boards. `.box.canvas`
+ * is always ours; any other `.canvas` is a board only after ADR-0009
+ * normalization (marker present). Un-normalized foreign files are left
+ * alone - parsing them would flood problems - but a normalized one MUST be
+ * scanned: its link notes live at the workspace root, and a scan that
+ * omits their board makes reconcile adopt them (R-C) onto an unrelated
+ * board with dangling endpoints.
+ */
+export function isReconcilableBoard(path: string, raw: string): boolean {
+  if (path.endsWith(".box.canvas")) return true;
+  return path.endsWith(".canvas") && hasBoxFormatMarker(raw);
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 

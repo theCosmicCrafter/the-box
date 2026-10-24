@@ -469,24 +469,23 @@ describe("reconcile adversarial", () => {
     expect(r.plan.steps.filter((s) => s.op === "trash")).toHaveLength(0);
   });
 
-  it("note with filename/box-edge mismatch gets renamed back, old trashed", () => {
+  it("note with filename/box-edge mismatch gets repaired in-place (filename is identity)", () => {
     const scan = emptyScan();
     const note = mkNote("2222222222222222");
-    // file on disk is link-WRONG.md but box-edge says 2222...
+    // file on disk is link-3333333333333333.md but box-edge says 2222...
     scan.notes.set("link-3333333333333333.md", ok(note));
     scan.boards.set(".box/main.box.canvas", ok(VALID_BOARD as Board));
     scan.files = new Set(["a.png", "b.png", "link-3333333333333333.md"]);
     const r = reconcile(scan);
     expect(
       r.plan.steps.some(
-        (s) => s.op === "write-atomic" && s.path === "link-2222222222222222.md",
+        (s) =>
+          s.op === "write-atomic" &&
+          s.path === "link-3333333333333333.md" &&
+          s.content.includes("3333333333333333"),
       ),
     ).toBe(true);
-    expect(
-      r.plan.steps.some(
-        (s) => s.op === "trash" && s.path === "link-3333333333333333.md",
-      ),
-    ).toBe(true);
+    expect(r.plan.steps.filter((s) => s.op === "trash")).toHaveLength(0);
   });
 
   it("edge whose note exists with different endpoints: note wins (R-B)", () => {
@@ -621,5 +620,29 @@ describe("hostile content shapes", () => {
     expect(Date.now() - t0).toBeLessThan(3000);
     const re = parseLinkNote(out, "link-7f3a9c2b1d4e5f6a.md");
     expect(re.value?.body).toHaveLength(2_000_000);
+  });
+
+  it("survives complex Unicode, emoji, RTL, zero-width chars across serialization", () => {
+    const note: LinkNote = {
+      path: "link-7f3a9c2b1d4e5f6a.md",
+      frontmatter: {
+        "box-edge": "7f3a9c2b1d4e5f6a",
+        "box-format": "box.link/1",
+        from: "n-aaa111",
+        to: "n-bbb222",
+        board: "main.box.canvas",
+        created: "2026-01-01T00:00:00.000Z",
+        "emoji-key-🚀": "🎨 👩‍💻 📦",
+        "arabic-text": "مرحبا بالعالم",
+        "hebrew-text": "שלום עולם",
+        "cjk-text": "你好世界 / こんにちは / 안녕하세요",
+      },
+      body: "Unicode body with zero-width\u200Bjoiners and symbols: ⚡🔥✨\nمرحبا\nשלום",
+    };
+    const out = serializeLinkNote(note);
+    const parsed = parseLinkNote(out, note.path);
+    expect(parsed.problems).toHaveLength(0);
+    expect(parsed.value?.frontmatter["emoji-key-🚀"]).toBe("🎨 👩‍💻 📦");
+    expect(parsed.value?.body).toContain("⚡🔥✨");
   });
 });

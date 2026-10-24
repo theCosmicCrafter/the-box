@@ -52,6 +52,7 @@ export function parseLinkNote(
   path: string,
 ): ParseResult<LinkNote> {
   const problems: ProblemItem[] = [];
+  let fatal = false;
   const split = splitFrontmatter(raw);
   let data: unknown;
   if (split !== null) {
@@ -65,6 +66,13 @@ export function parseLinkNote(
         ],
       };
     }
+  } else {
+    return {
+      value: null,
+      problems: [
+        { kind: "malformed-note", path, detail: "missing frontmatter fences" },
+      ],
+    };
   }
   const fm = (
     data !== null && typeof data === "object" && !Array.isArray(data)
@@ -74,6 +82,7 @@ export function parseLinkNote(
 
   const edgeId = fm["box-edge"];
   if (typeof edgeId !== "string" || !isEdgeId(edgeId)) {
+    fatal = true;
     problems.push({
       kind: "malformed-note",
       path,
@@ -82,6 +91,8 @@ export function parseLinkNote(
   } else {
     const slug = edgeIdFromNoteName(baseName(path));
     if (slug !== null && slug !== edgeId) {
+      // ERR-3: filename slug != box-edge is surfaced, but non-fatal:
+      // reconcile repairs box-edge frontmatter to match filename (filename is identity).
       problems.push({
         kind: "malformed-note",
         path,
@@ -90,6 +101,7 @@ export function parseLinkNote(
     }
   }
   if (fm["box-format"] !== LINK_NOTE_FORMAT) {
+    fatal = true;
     problems.push({
       kind: "malformed-note",
       path,
@@ -99,6 +111,7 @@ export function parseLinkNote(
   for (const k of ["from", "to"] as const) {
     const v = fm[k];
     if (typeof v !== "string" || !isNodeId(v)) {
+      fatal = true;
       problems.push({
         kind: "malformed-note",
         path,
@@ -117,6 +130,7 @@ export function parseLinkNote(
   ) {
     fm["created"] = new Date(created).toISOString();
   } else {
+    fatal = true;
     problems.push({
       kind: "malformed-note",
       path,
@@ -124,7 +138,7 @@ export function parseLinkNote(
     });
   }
 
-  if (problems.length > 0) {
+  if (fatal) {
     return { value: null, problems };
   }
   return {
@@ -134,7 +148,7 @@ export function parseLinkNote(
       // Strip the serializer's framing newlines exactly: one after the
       // fence, one before EOF. Both are write-side artifacts - without the
       // trailing strip every save-load cycle grows bodies by a newline.
-      body: (split?.content ?? "").replace(/^\r?\n/, "").replace(/\r?\n$/, ""),
+      body: (split.content ?? "").replace(/^\r?\n/, "").replace(/\r?\n$/, ""),
     },
     problems,
   };

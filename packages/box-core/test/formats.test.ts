@@ -56,9 +56,9 @@ describe("formats: link note", () => {
     expect(out).toContain("mood: amber");
   });
 
-  it("flags filename/box-edge mismatch", () => {
+  it("flags filename/box-edge mismatch without dropping note", () => {
     const r = parseLinkNote(NOTE_MD, "link-0000000000000000.md");
-    expect(r.value).toBeNull();
+    expect(r.value).not.toBeNull();
     expect(r.problems.some((p) => p.detail.includes("slug"))).toBe(true);
   });
 });

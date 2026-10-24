@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // Chaos storm: N random fs ops against a watched dir, then verify the
 // app's store converged to disk truth. node tools/chaos-storm.mjs <root>
 import fs from "node:fs";

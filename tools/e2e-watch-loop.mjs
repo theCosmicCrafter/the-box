@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // E2E: the watcher's reconcile path on a real fixture workspace.
 // Simulates what main does per pass - scan, parse, reconcile, exec -
 // then deletes the link note "externally" and proves I-3 (edge removed,
