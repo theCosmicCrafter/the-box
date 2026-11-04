@@ -7,7 +7,7 @@ import type { Delta } from "../model/types.js";
 import type { FileEntry } from "../vault/vault.js";
 
 export interface PrevState {
-  files: Map<string, { size: number; mtime?: number; sha256?: string }>;
+  files: Map<string, { size: number; mtime?: number }>;
 }
 
 export function classifyFileSet(
@@ -31,9 +31,6 @@ export function classifyFileSet(
     if (prev === undefined) {
       created.push(e);
     } else if (
-      (prev.sha256 !== undefined &&
-        e.sha256 !== undefined &&
-        prev.sha256 !== e.sha256) ||
       prev.size !== e.size ||
       (prev.mtime !== undefined &&
         e.mtime !== undefined &&
@@ -48,20 +45,37 @@ export function classifyFileSet(
   // deterministic by sorting for stable output.
   deleted.sort();
   created.sort((a, b) => a.path.localeCompare(b.path));
+  // Index creates by size: every rename candidate must match size anyway,
+  // so the per-delete scan only walks one bucket - O(n) not O(n^2) on
+  // bulk moves. Bucket order preserves `created`'s sorted order, keeping
+  // first-match selection identical to the old linear find.
+  const bySize = new Map<number, FileEntry[]>();
+  for (const c of created) {
+    const b = bySize.get(c.size);
+    if (b === undefined) bySize.set(c.size, [c]);
+    else b.push(c);
+  }
   const consumed = new Set<string>();
   for (const oldPath of deleted) {
     const prev = before.files.get(oldPath);
-    // Rename pairing: sha beats (size+mtime) beats size-only. A real rename
-    // preserves content AND mtime; a same-size create almost never shares it.
-    const match = created.find(
-      (c) =>
-        !consumed.has(c.path) &&
-        (prev?.sha256 !== undefined && c.sha256 !== undefined
-          ? prev.sha256 === c.sha256
-          : prev?.mtime !== undefined && c.mtime !== undefined
-            ? prev.size === c.size && prev.mtime === c.mtime
-            : prev?.size === c.size),
-    );
+    // Rename pairing: same size+mtime beats size-only. A real rename
+    // preserves content AND mtime; a same-size create almost never shares
+    // it. (Content hashing was considered and dropped: O(workspace) per
+    // scan for a collision class that ms-precision mtimes already make
+    // vanishingly rare. If mispairing shows up in dogfood, add lazy
+    // hashing behind IVault rather than widening this signature.)
+    const match =
+      prev === undefined
+        ? undefined
+        : (bySize.get(prev.size) ?? []).find(
+            (c) =>
+              !consumed.has(c.path) &&
+              !(
+                prev.mtime !== undefined &&
+                c.mtime !== undefined &&
+                prev.mtime !== c.mtime
+              ),
+          );
     if (match !== undefined && prev !== undefined) {
       deltas.push({ kind: "renamed", path: oldPath, to: match.path });
       consumed.add(match.path);
@@ -73,15 +87,4 @@ export function classifyFileSet(
     if (!consumed.has(c.path)) deltas.push({ kind: "created", path: c.path });
   }
   return deltas;
-}
-
-/** Path classification for routing deltas - §5.2 rule 3. */
-export type Route = "board" | "tombstone" | "link-note" | "ink" | "object";
-
-export function routePath(path: string): Route {
-  if (path === ".box/tombstones.json") return "tombstone";
-  if (path.startsWith(".box/") && path.endsWith(".box.canvas")) return "board";
-  if (/link-[0-9a-f]{16}\.md$/.test(path)) return "link-note";
-  if (path.endsWith(".ink.svg")) return "ink";
-  return "object";
 }

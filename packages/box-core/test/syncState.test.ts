@@ -22,7 +22,7 @@ describe("syncState: .box/known.json", () => {
       knownNotes: ["edge-2", "edge-1", "edge-3"],
       files: {
         "b.png": { size: 200, mtime: 1700000000 },
-        "a.png": { size: 100, mtime: 1600000000, sha256: "hash123" },
+        "a.png": { size: 100, mtime: 1600000000 },
       },
     };
 
@@ -40,7 +40,6 @@ describe("syncState: .box/known.json", () => {
     expect(parsed?.files["a.png"]).toEqual({
       size: 100,
       mtime: 1600000000,
-      sha256: "hash123",
     });
     expect(parsed?.files["b.png"]).toEqual({
       size: 200,
@@ -87,5 +86,25 @@ describe("syncState: .box/known.json", () => {
     expect(partial?.files).toEqual({
       "good.png": { size: 50 },
     });
+  });
+
+  it("prototype-polluting file keys survive as own properties", () => {
+    // A workspace file literally named "__proto__" is a valid PathRel;
+    // known.json must round-trip it without mutating Object.prototype.
+    // JSON.parse creates real own "__proto__" keys (object literals don't).
+    const input = JSON.parse(
+      '{"__proto__":{"size":1},"real.png":{"size":2}}',
+    ) as Record<string, { size: number }>;
+    const state = createSyncState([], input);
+    const json = serializeSyncState(state);
+    const back = parseSyncState(json);
+    expect(back?.files["__proto__"]?.size).toBe(1);
+    expect(back?.files["real.png"]?.size).toBe(2);
+    // If "__proto__" had hit the setter instead, Object.prototype would
+    // now carry a .size - plain objects must stay clean.
+    expect(({} as Record<string, unknown>)["size"]).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(state.files, "__proto__")).toBe(
+      true,
+    );
   });
 });

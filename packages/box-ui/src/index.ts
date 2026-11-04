@@ -13,7 +13,6 @@ export * from "./canvas/layout.js";
 export * from "./canvas/NodeView.js";
 export * from "./canvas/Viewport.js";
 export * from "./ContextMenu.js";
-export * from "./FileList.js";
 export * from "./FileTree.js";
 export * from "./HelpModal.js";
 export * from "./icons.js";

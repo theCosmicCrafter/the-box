@@ -6,7 +6,6 @@
 export interface SyncStateFileRecord {
   size: number;
   mtime?: number | undefined;
-  sha256?: string | undefined;
 }
 
 export interface SyncState {
@@ -43,7 +42,10 @@ export function parseSyncState(raw: string): SyncState | null {
   }
 
   const rawFiles = doc["files"];
-  const files: Record<string, SyncStateFileRecord> = {};
+  // Null-prototype record: known.json is app-managed but the workspace is
+  // untrusted input, and a file literally named "__proto__" must land as
+  // an own key instead of mutating the object's prototype.
+  const files = Object.create(null) as Record<string, SyncStateFileRecord>;
   if (isObj(rawFiles)) {
     for (const [path, entry] of Object.entries(rawFiles)) {
       if (isObj(entry) && typeof entry["size"] === "number") {
@@ -51,9 +53,6 @@ export function parseSyncState(raw: string): SyncState | null {
           size: entry["size"],
           ...(typeof entry["mtime"] === "number"
             ? { mtime: entry["mtime"] }
-            : {}),
-          ...(typeof entry["sha256"] === "string"
-            ? { sha256: entry["sha256"] }
             : {}),
         };
       }
@@ -73,7 +72,10 @@ export function parseSyncState(raw: string): SyncState | null {
 /** Deterministic serialization for .box/known.json. */
 export function serializeSyncState(state: SyncState): string {
   const sortedNotes = [...new Set(state.knownNotes)].sort();
-  const sortedFiles: Record<string, SyncStateFileRecord> = {};
+  const sortedFiles = Object.create(null) as Record<
+    string,
+    SyncStateFileRecord
+  >;
   for (const path of Object.keys(state.files).sort()) {
     const entry = state.files[path];
     if (entry !== undefined) {
@@ -93,18 +95,20 @@ export function serializeSyncState(state: SyncState): string {
 export function createSyncState(
   knownNotes: Iterable<string>,
   files?:
-    | Map<string, { size: number; mtime?: number | undefined; sha256?: string | undefined }>
+    | Map<string, { size: number; mtime?: number | undefined }>
     | Record<string, SyncStateFileRecord>
     | undefined,
   nowIso = new Date().toISOString(),
 ): SyncState {
-  const fileRecords: Record<string, SyncStateFileRecord> = {};
+  const fileRecords = Object.create(null) as Record<
+    string,
+    SyncStateFileRecord
+  >;
   if (files instanceof Map) {
     for (const [p, meta] of files) {
       fileRecords[p] = {
         size: meta.size,
         ...(meta.mtime !== undefined ? { mtime: meta.mtime } : {}),
-        ...(meta.sha256 !== undefined ? { sha256: meta.sha256 } : {}),
       };
     }
   } else if (files !== undefined) {

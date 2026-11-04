@@ -5,7 +5,7 @@
 import { serializeBoard } from "../model/board.js";
 import { linkNoteName, newEdgeId } from "../model/ids.js";
 import { serializeLinkNote } from "../model/linkNote.js";
-import { baseName, parentDir } from "../model/paths.js";
+import { baseName } from "../model/paths.js";
 import type { Board, CanvasEdge, LinkNote, WritePlan } from "../model/types.js";
 import { LINK_NOTE_FORMAT } from "../model/types.js";
 
@@ -14,12 +14,6 @@ const NOTES_DIR = ""; // link notes live workspace-global at root (ADR-0003)
 
 export function boardPath(name: string): string {
   return `${BOARDS_DIR}/${name}.box.canvas`;
-}
-
-export function defaultBoardName(boardPaths: string[]): string {
-  return boardPaths[0] !== undefined
-    ? baseName(boardPaths[0]).replace(/\.box\.canvas$/, "")
-    : "main";
 }
 
 function fileOf(board: Board, nodeId: string): string | undefined {
@@ -115,35 +109,4 @@ export function deleteEdgePlan(
       { op: "trash", path: `${noteDir}${linkNoteName(edgeId)}` },
     ],
   };
-}
-
-/**
- * I-3: a link note disappeared -> remove the edge from every board that
- * references it. Emitted by reconcile callers; pure function.
- */
-export function orphanEdgeRemovalPlans(
-  boards: { path: string; board: Board }[],
-  missingNoteEdgeIds: Set<string>,
-): WritePlan {
-  const steps: WritePlan["steps"] = [];
-  for (const { path, board } of boards) {
-    const kept = board.edges.filter((e) => !missingNoteEdgeIds.has(e.id));
-    if (kept.length !== board.edges.length) {
-      steps.push({
-        op: "write-atomic",
-        path,
-        content: serializeBoard({ ...board, edges: kept }),
-      });
-    }
-  }
-  return { reason: "remove edges whose notes are gone", steps };
-}
-
-/** Locate the board dir of a PathRel board path (always `.box`). */
-export function boardsRoot(): string {
-  return BOARDS_DIR;
-}
-
-export function noteParent(notePath: string): string {
-  return parentDir(notePath);
 }
