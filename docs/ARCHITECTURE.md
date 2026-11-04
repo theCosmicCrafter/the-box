@@ -78,6 +78,12 @@ content; it never performs I/O itself.
 | `model/`     | `Workspace`, `Board`, `CanvasNode` (text/file/link/group union), `CanvasEdge`, `LinkNote`, `InkSidecar`; `parseBoard()`, `serializeBoard()`, `parseLinkNote()`, `serializeLinkNote()`, `parseInkSvg()`, `serializeInkSvg()`, `newEdgeId()`, `newNodeId()` | no I/O, no Date.now/Math.random in serialization paths (deterministic output) |
 | `sync/`      | `createEdge(board, from, to) → WritePlan`, `deleteEdge(edgeId) → WritePlan`, `reconcile(scan) → ReconcileReport`, `detectRename(deleted, created, hasher) → RenameMap` - implements DATA-MODEL §6 rules R-A..R-G                                          | never writes directly; emits `WritePlan` step lists the platform executes     |
 | `vault/`     | `interface IVault { read(), writeAtomic(), trash(), scan() }`, `WritePlan { steps: WriteStep[] }`                                                                                                                                                         | platform-agnostic; no fs imports                                              |
+
+> **IVault in production:** the Tauri renderer does not implement IVault - WritePlan
+> steps execute through `window.box.*` IPC commands (`bridge.ts` → `lib.rs`), which
+> are the production file adapter. `IVault`/`MemoryVault` remain the headless seam:
+> box-core tests and any future index tool drive them without a shell. If a second
+> platform target ever lands, it adapts IVault rather than growing new call sites.
 | `watch/`     | `classifyEvents(events, prevState) → Delta[]`, `debounce(config)` - encodes DATA-MODEL §5.2 rules                                                                                                                                                         | pure; timing injected                                                         |
 | `index/`     | `SyncState` cache over `.box/known.json` (ADR-0011): `knownNotes` and file snapshot; full SQLite index reserved for Stage 4 | schema is a cache; no queries required to be correct for truth                |
 | `decisions/` | `interface IDecisionClient`, `VonClient(url)`, `decide(question) → {pick, p, confidence}`, feature gates                                                                                                                                                  | fails silent-offline by design; never blocks sync paths                       |
