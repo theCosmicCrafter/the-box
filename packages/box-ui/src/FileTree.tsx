@@ -99,6 +99,12 @@ export function FileTree(props: {
    */
   unplacedOnly?: boolean | undefined;
   placedPaths?: Set<string> | undefined;
+  /** Right-click on a row: path is workspace-relative ("" = vault root
+   * for the implicit root dir), isDir distinguishes folder rows. The
+   * platform owns the menu; the tree just reports the gesture. */
+  onContextMenu?:
+    | ((path: string, isDir: boolean, x: number, y: number) => void)
+    | undefined;
 }) {
   const visible = useMemo(
     () =>
@@ -129,6 +135,10 @@ export function FileTree(props: {
             className="tree-row tree-dir"
             style={{ paddingLeft: 6 + depth * 14 }}
             onClick={() => toggle(n.path)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              props.onContextMenu?.(n.path, true, e.clientX, e.clientY);
+            }}
           >
             <Icon
               name={collapsed.has(n.path) ? "chevronRight" : "chevronDown"}
@@ -161,6 +171,10 @@ export function FileTree(props: {
           onClick={() => {
             if (n.path.endsWith(".canvas")) props.onOpen?.(n.path);
           }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            props.onContextMenu?.(n.path, false, e.clientX, e.clientY);
+          }}
         >
           <Icon name={fileIcon(n.path)} size={14} />
           <span>{n.name}</span>
@@ -170,7 +184,15 @@ export function FileTree(props: {
   );
 
   return (
-    <div className="file-tree">
+    <div
+      className="file-tree"
+      onContextMenu={(e) => {
+        // Bare tree background = vault root; row menus handle themselves.
+        if ((e.target as HTMLElement).closest(".tree-row")) return;
+        e.preventDefault();
+        props.onContextMenu?.("", true, e.clientX, e.clientY);
+      }}
+    >
       <ul>{tree.map((n) => renderNode(n, 0))}</ul>
       {visible.length === 0 && (
         <p className="empty">

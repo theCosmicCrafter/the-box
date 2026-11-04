@@ -32,6 +32,13 @@ export function TabBar(props: TabBarProps) {
               role="tab"
               aria-selected={isActive}
               onClick={() => props.onSelectBoard(b.path)}
+              onAuxClick={(e) => {
+                // Middle-click closes, matching browser tab convention.
+                if (e.button === 1 && props.onCloseBoard) {
+                  e.preventDefault();
+                  props.onCloseBoard(b.path);
+                }
+              }}
               title={b.path}
             >
               <Icon name="board" size={14} />

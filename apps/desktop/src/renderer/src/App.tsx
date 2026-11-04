@@ -70,6 +70,7 @@ import {
     QuickOpen,
     Ribbon,
     screenToWorld,
+    StatusBar,
     strokeToPath,
     TabBar,
     tidyGrid,
@@ -278,6 +279,17 @@ export function App() {
   const [pickUp, setPickUp] = useState<string | null>(null);
   // Shift+1 zoom-to-fit request.
   const [fitAll, setFitAll] = useState<{ nonce: number } | null>(null);
+  // Status-bar zoom: camera changes stream through onCameraChange; the
+  // readout is throttled so a zoom gesture doesn't re-render per frame.
+  const [zoomPct, setZoomPct] = useState(100);
+  const zoomPctAt = useRef(0);
+  const [zoomRequest, setZoomRequest] = useState<{
+    action: "in" | "out" | "reset";
+    nonce: number;
+  } | null>(null);
+  const zoomNonce = useRef(0);
+  const requestZoom = (action: "in" | "out" | "reset") =>
+    setZoomRequest({ action, nonce: ++zoomNonce.current });
   // FR-104: text-kind file node being edited in place.
   const [fileEdit, setFileEdit] = useState<{
     nodeId: string;
@@ -1023,6 +1035,14 @@ export function App() {
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && (e.key === "w" || e.key === "W")) {
+        // Ctrl+W closes the active board (tab-bar polish, Q4).
+        if (boardPath !== null) {
+          e.preventDefault();
+          closeBoard();
+        }
+        return;
+      }
       if (mod && (e.key === "z" || e.key === "Z")) {
         if (board === null) return;
         e.preventDefault();
@@ -1046,6 +1066,7 @@ export function App() {
   }, [
     pickUp,
     board,
+    boardPath,
     filterOpen,
     relatedDialog,
     helpOpen,
@@ -1865,6 +1886,69 @@ export function App() {
     setMenu({ x: cx, y: cy, items });
   };
 
+  // Q2: FileTree context menu - file ops the tree didn't expose. The
+  // vault root ("") only offers creation; rows get open/reveal/copy/
+  // delete plus board-open for .canvas files.
+  const treeMenu = (path: string, isDir: boolean, x: number, y: number) => {
+    if (!workspaceRoot || !window.box) return;
+    const items: MenuItem[] = [];
+    if (isDir) {
+      items.push({
+        label: "New file here",
+        icon: "filePlus",
+        onPick: () =>
+          void (async () => {
+            const r = await window.box!.newFile(path, "untitled", "md", "");
+            if (r.ok) await rescan();
+            else
+              useBoxStore
+                .getState()
+                .setProblems([`new file failed: ${r.error}`]);
+          })(),
+      });
+    } else {
+      if (path.endsWith(".canvas")) {
+        items.push({
+          label: "Open board",
+          icon: "board",
+          onPick: () => void loadBoardFile(path),
+        });
+      }
+      items.push(
+        {
+          label: "Open",
+          icon: "external",
+          onPick: () => void openExternalSmart(path),
+        },
+        {
+          label: "Reveal in Explorer",
+          icon: "folder",
+          onPick: () => void window.box!.revealFile(path),
+        },
+        {
+          label: "Copy path",
+          icon: "clipboard",
+          onPick: () => void navigator.clipboard.writeText(path),
+        },
+        {
+          label: "Move to trash",
+          icon: "trash",
+          danger: true,
+          onPick: () =>
+            void (async () => {
+              const r = await window.box!.trashFile(workspaceRoot, path);
+              if (r.ok) await rescan();
+              else
+                useBoxStore
+                  .getState()
+                  .setProblems([`trash failed: ${path} - ${r.error}`]);
+            })(),
+        },
+      );
+    }
+    setMenu({ x, y, items });
+  };
+
   const nodeMenu = (
     node: CanvasNode,
     cx: number,
@@ -2395,7 +2479,13 @@ export function App() {
             onNodeMenu={nodeMenu}
             onCameraChange={(c) => {
               camRef.current = c;
+              const now = performance.now();
+              if (now - zoomPctAt.current < 120) return;
+              zoomPctAt.current = now;
+              const z = Math.round(c.z * 100);
+              setZoomPct((p) => (p === z ? p : z));
             }}
+            zoomRequest={zoomRequest ?? undefined}
             viewportRef={vpElRef}
             onDropEdgeAt={(f, s, x, y) => void dropEdgeAt(f, s, x, y)}
             linkProposal={linkProposal}
@@ -2604,6 +2694,7 @@ export function App() {
                 files={files}
                 activePath={boardPath ?? undefined}
                 onOpen={(p) => void loadBoardFile(p)}
+                onContextMenu={treeMenu}
               />
               {scaffoldOffered && (
                 <div className="sidebar-scaffold">
@@ -2680,6 +2771,22 @@ export function App() {
                 : "select a board, or make one in the sidebar"}
             </span>
           </div>
+        )}
+        {workspaceRoot !== null && (
+          <StatusBar
+            zoomPct={zoomPct}
+            nodeCount={board?.nodes.length ?? 0}
+            edgeCount={board?.edges.length ?? 0}
+            fileCount={files.length}
+            problemCount={
+              problems.length + boardProblems.length + brokenNodes.size
+            }
+            selectedCount={selectedNodeIds.length}
+            onZoomIn={() => requestZoom("in")}
+            onZoomOut={() => requestZoom("out")}
+            onZoomReset={() => requestZoom("reset")}
+            onZoomFit={() => setFitAll({ nonce: Date.now() })}
+          />
         )}
         {quickOpen && board !== null && (
           <QuickOpen

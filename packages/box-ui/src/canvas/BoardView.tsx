@@ -8,7 +8,12 @@
 import type { Board, CanvasNode, InkStroke, Side } from "@box/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
-import { DEFAULT_CAMERA, screenToWorld, zoomToFit } from "./camera.js";
+import {
+  DEFAULT_CAMERA,
+  screenToWorld,
+  zoomAt,
+  zoomToFit,
+} from "./camera.js";
 import { nodeVisible, worldViewport } from "./cull.js";
 import type { DraftEdge } from "./EdgeLayer.js";
 import { EdgeHandles, EdgeLayer, anchor, edgeMidpoint } from "./EdgeLayer.js";
@@ -63,6 +68,11 @@ export interface BoardViewProps {
   focusNode?: { id: string; nonce: number } | null | undefined;
   /** Imperative zoom-to-fit request: camera fits all nodes (Shift+1). */
   fitAllRequest?: { nonce: number } | undefined;
+  /** Imperative zoom step from chrome (status bar): in/out about the
+   * viewport center, reset returns to 100% (Shift+0 semantics). */
+  zoomRequest?:
+    | { action: "in" | "out" | "reset"; nonce: number }
+    | undefined;
   /** Selected edge id (or null when cleared). */
   selectedEdge?: string | null | undefined;
   onDeleteNode?: (id: string) => void;
@@ -222,6 +232,29 @@ export function BoardView(props: BoardViewProps) {
       ),
     );
   }, [props.fitAllRequest?.nonce]);
+
+  // Zoom step request (status bar buttons): same center-anchored math
+  // as wheel zoom / Shift+0 reset.
+  useEffect(() => {
+    const req = props.zoomRequest;
+    if (!req) return;
+    const el = vpRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.width / 2;
+    const cy = r.height / 2;
+    setCam((c) => {
+      if (req.action === "reset") {
+        return {
+          z: 1,
+          x: c.x + cx * (1 / c.z - 1),
+          y: c.y + cy * (1 / c.z - 1),
+        };
+      }
+      return zoomAt(c, cx, cy, req.action === "in" ? 1.25 : 0.8);
+    });
+    // nonce-keyed like fitAllRequest: the action is read once per request.
+  }, [props.zoomRequest?.nonce]);
 
   // Viewport size for culling - ResizeObserver so panel toggles re-measure.
   const [vpSize, setVpSize] = useState<{ w: number; h: number } | null>(null);
