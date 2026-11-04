@@ -65,6 +65,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 export function importSpecCanvas(
   raw: string,
   boardPath: string,
+  opts: { existingNotePaths?: ReadonlySet<string> } = {},
 ): SpecImportResult {
   let doc: unknown;
   try {
@@ -113,7 +114,10 @@ export function importSpecCanvas(
     return next;
   });
 
-  // Arrows are notes: every imported edge gets a real link-<id>.md.
+  // Arrows are notes: every imported edge gets a real link-<id>.md - except
+  // paths that already exist on disk. A foreign canvas can carry edge ids
+  // that collide with live notes; overwriting them would destroy user
+  // content, so existing files win and reconcile sorts out the mismatch.
   const fileOf = new Map<string, string>();
   for (const n of nodes) {
     if (isObj(n) && n["type"] === "file" && typeof n["file"] === "string") {
@@ -141,6 +145,7 @@ export function importSpecCanvas(
     if (ff !== undefined) fm["from-file"] = ff;
     if (tf !== undefined) fm["to-file"] = tf;
     if (typeof e["label"] === "string") fm["type"] = e["label"];
+    if (opts.existingNotePaths?.has(linkNoteName(e["id"]))) continue;
     const content = serializeLinkNote({
       path: linkNoteName(e["id"]),
       frontmatter: fm,

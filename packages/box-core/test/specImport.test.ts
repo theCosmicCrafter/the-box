@@ -97,6 +97,40 @@ describe("importSpecCanvas (ADR-0009)", () => {
     expect(p.problems).toEqual([]);
   });
 
+  it("skips note writes for paths that already exist on disk", () => {
+    // A foreign canvas can carry a VALID edge id that collides with a
+    // live link-<id>.md - the existing note must win over the stub.
+    const validIds = {
+      nodes: [
+        { id: "n-aaa111bbb222", type: "file", x: 0, y: 0, width: 1, height: 1, file: "a.png" },
+        { id: "n-ccc333ddd444", type: "file", x: 2, y: 0, width: 1, height: 1, file: "b.png" },
+      ],
+      edges: [
+        {
+          id: "7f3a9c2b1d4e5f6a",
+          fromNode: "n-aaa111bbb222",
+          toNode: "n-ccc333ddd444",
+        },
+      ],
+    };
+    const colliding = new Set(["link-7f3a9c2b1d4e5f6a.md"]);
+    const r = importSpecCanvas(JSON.stringify(validIds), "w/x.canvas", {
+      existingNotePaths: colliding,
+    });
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.notes).toHaveLength(0);
+    expect(r.remappedEdges).toBe(0); // valid id kept, only the note skipped
+    // The edge still carries its box-link - reconcile handles the note side.
+    const p = parseBoard(r.boardJson, "w/x.canvas");
+    expect(p.value!.edges[0]!["box-link"]).toBe("link-7f3a9c2b1d4e5f6a.md");
+    // Without the guard the stub is emitted as before.
+    const r2 = importSpecCanvas(JSON.stringify(validIds), "w/x.canvas");
+    expect("error" in r2).toBe(false);
+    if ("error" in r2) return;
+    expect(r2.notes).toHaveLength(1);
+  });
+
   it("rejects non-canvas JSON without touching the file", () => {
     expect("error" in importSpecCanvas("not json", "x.canvas")).toBe(true);
     expect("error" in importSpecCanvas("[1,2]", "x.canvas")).toBe(true);
