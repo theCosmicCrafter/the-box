@@ -95,11 +95,46 @@ fn is_path_rel(p: &str) -> bool {
     true
 }
 
+// fs::canonicalize returns \\?\ verbatim paths on Windows; ShellExecute
+// and Explorer reject those, so strip the prefix for ordinary drive
+// paths (UNC shares keep it - they need it).
+fn simplify_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.as_os_str().to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        if !rest.starts_with(r"UNC\") {
+            return PathBuf::from(rest);
+        }
+    }
+    p
+}
+
 fn resolve_inside(root: &Path, rel: &str) -> Option<PathBuf> {
     if !is_path_rel(rel) {
         return None;
     }
-    Some(root.join(rel.split('/').collect::<PathBuf>()))
+    let candidate = root.join(rel.split('/').collect::<PathBuf>());
+    // Lexical containment is not enough: a symlink or junction inside the
+    // workspace can point outside it, and is_path_rel cannot see that.
+    // Canonicalize the deepest existing ancestor - covering both existing
+    // targets and not-yet-created write paths - re-append the missing
+    // tail, and require the result to stay under the canonical root.
+    // TOCTOU residual: a local attacker racing a symlink swap between
+    // check and use is out of scope for a single-user local app.
+    let canon_root = simplify_verbatim(fs::canonicalize(root).ok()?);
+    let mut ancestor = candidate.as_path();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(canon) = fs::canonicalize(ancestor) {
+            let mut resolved = simplify_verbatim(canon);
+            for seg in tail.iter().rev() {
+                resolved.push(seg);
+            }
+            return resolved.starts_with(&canon_root).then_some(resolved);
+        }
+        let name = ancestor.file_name()?;
+        tail.push(name.to_os_string());
+        ancestor = ancestor.parent()?;
+    }
 }
 
 // ---- scan (port of scanDir) ----
@@ -1185,10 +1220,20 @@ fn is_loopback_url(url: &str) -> bool {
     port_ok && (host == "127.0.0.1" || host == "[::1]" || host.eq_ignore_ascii_case("localhost"))
 }
 
+// decide_post is the renderer's only network egress (CSP connect-src blocks
+// http in the webview). Loopback-only is enforced above; these caps stop a
+// buggy renderer or hostile local service from turning it into a memory
+// pump - requests are small decision payloads, responses are JSON answers.
+const DECIDE_MAX_REQUEST: usize = 256 * 1024;
+const DECIDE_MAX_RESPONSE: u64 = 1024 * 1024;
+
 #[tauri::command]
 fn decide_post(url: String, body: String) -> Result<String, String> {
     if !is_loopback_url(&url) {
         return Err("decide_post: non-loopback url refused".to_string());
+    }
+    if body.len() > DECIDE_MAX_REQUEST {
+        return Err("decide_post: request body too large".to_string());
     }
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(5)))
@@ -1199,7 +1244,15 @@ fn decide_post(url: String, body: String) -> Result<String, String> {
         .content_type("application/json")
         .send(body.as_bytes())
         .map_err(|e| e.to_string())?;
-    res.body_mut().read_to_string().map_err(|e| e.to_string())
+    let mut limited = res.body_mut().as_reader().take(DECIDE_MAX_RESPONSE + 1);
+    let mut buf = String::new();
+    limited
+        .read_to_string(&mut buf)
+        .map_err(|e| e.to_string())?;
+    if buf.len() as u64 > DECIDE_MAX_RESPONSE {
+        return Err("decide_post: response too large".to_string());
+    }
+    Ok(buf)
 }
 
 #[tauri::command]

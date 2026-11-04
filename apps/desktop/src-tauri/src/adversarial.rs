@@ -81,7 +81,102 @@ fn resolve_inside_never_escapes() {
         assert_eq!(resolve_inside(&root, p), None, "escape: {p}");
     }
     let ok = resolve_inside(&root, "a/b.txt").unwrap();
-    assert!(ok.starts_with(&root));
+    // resolve_inside returns canonical paths; compare like with like.
+    let canon_root = simplify_verbatim(fs::canonicalize(&root).unwrap());
+    assert!(ok.starts_with(&canon_root));
+}
+
+#[cfg(unix)]
+fn try_symlink(target: &Path, link: &Path) -> bool {
+    std::os::unix::fs::symlink(target, link).is_ok()
+}
+#[cfg(windows)]
+fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+    std::os::windows::fs::symlink_dir(target, link).is_ok()
+}
+#[cfg(windows)]
+fn try_symlink_file(target: &Path, link: &Path) -> bool {
+    std::os::windows::fs::symlink_file(target, link).is_ok()
+}
+#[cfg(not(any(unix, windows)))]
+fn try_symlink_dir(_t: &Path, _l: &Path) -> bool {
+    false
+}
+#[cfg(not(any(unix, windows)))]
+fn try_symlink_file(_t: &Path, _l: &Path) -> bool {
+    false
+}
+#[cfg(unix)]
+fn try_symlink_file(target: &Path, link: &Path) -> bool {
+    std::os::unix::fs::symlink(target, link).is_ok()
+}
+
+#[test]
+fn resolve_inside_rejects_symlinked_dir_escape() {
+    let ws = tmpdir("sym-ws");
+    let outside = tmpdir("sym-out");
+    fs::write(outside.join("secret.txt"), "top secret").unwrap();
+    let link = ws.join("linked");
+    if !try_symlink_dir(&outside, &link) {
+        // Host lacks symlink privilege - the attack surface is absent.
+        return;
+    }
+    // Lexically inside, canonically outside: must be refused.
+    assert_eq!(resolve_inside(&ws, "linked/secret.txt"), None);
+    assert!(write_atomic(&ws, "linked/evil.txt", "x").is_err());
+    // Deeper nesting through the same link is refused too.
+    assert_eq!(resolve_inside(&ws, "linked/sub/dir/f.txt"), None);
+    // ...while ordinary paths still resolve.
+    assert!(resolve_inside(&ws, "plain/ok.txt").is_some());
+}
+
+#[test]
+fn resolve_inside_rejects_symlinked_file_escape() {
+    let ws = tmpdir("symf-ws");
+    let outside = tmpdir("symf-out");
+    let target = outside.join("secret.txt");
+    fs::write(&target, "top secret").unwrap();
+    let link = ws.join("innocent.txt");
+    if !try_symlink_file(&target, &link) {
+        return;
+    }
+    assert_eq!(resolve_inside(&ws, "innocent.txt"), None);
+    assert!(write_atomic(&ws, "innocent.txt", "x").is_err());
+}
+
+#[test]
+fn decide_post_rejects_oversized_request_before_network() {
+    // Body cap fires before any socket is opened.
+    let big = "x".repeat(DECIDE_MAX_REQUEST + 1);
+    let r = decide_post("http://127.0.0.1:1/x".to_string(), big);
+    assert!(r.is_err());
+}
+
+#[test]
+fn decide_post_rejects_oversized_response() {
+    use std::io::Write as _;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        if let Ok((mut s, _)) = listener.accept() {
+            let n = DECIDE_MAX_RESPONSE + 2;
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {n}\r\n\r\n");
+            if s.write_all(head.as_bytes()).is_err() {
+                return;
+            }
+            let chunk = vec![b'x'; 8192];
+            let mut left = n as usize;
+            while left > 0 {
+                let w = left.min(chunk.len());
+                if s.write_all(&chunk[..w]).is_err() {
+                    break; // client hung up after hitting its cap
+                }
+                left -= w;
+            }
+        }
+    });
+    let r = decide_post(format!("http://127.0.0.1:{port}/x"), "{}".to_string());
+    assert!(r.is_err());
 }
 
 // -- bound_root: session binding resists root-confusion --
@@ -375,7 +470,12 @@ fn box_protocol_uri_decoding_and_boundary_attacks() {
         .to_string();
     assert_eq!(rel, "my image (1)#2+c.png");
     let abs = resolve_inside(&root, &rel);
-    assert_eq!(abs, Some(test_file));
+    // resolve_inside returns canonical paths (on-disk casing may differ
+    // from the env-provided temp root) - compare canonical forms.
+    assert_eq!(
+        abs,
+        Some(simplify_verbatim(fs::canonicalize(&test_file).unwrap()))
+    );
 
     // 2. Traversal attack with percent encoding
     let attack_path = "/f/%2E%2E%2Fsecret.txt";
