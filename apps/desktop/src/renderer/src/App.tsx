@@ -448,7 +448,13 @@ export function App() {
       !rel.endsWith(".box.canvas") &&
       !hasBoxFormatMarker(text)
     ) {
-      const imp = importSpecCanvas(text, rel);
+      const imp = importSpecCanvas(text, rel, {
+        // A foreign canvas can carry edge ids colliding with live
+        // link-*.md files; existing notes win over generated stubs.
+        existingNotePaths: new Set(
+          useBoxStore.getState().files.map((f) => f.path),
+        ),
+      });
       if ("error" in imp) {
         useBoxStore
           .getState()
@@ -1235,6 +1241,10 @@ export function App() {
   };
 
   // Track 3: Local Semantic Intelligence (ADR-0012)
+  // Session-scoped vector cache: a vector is a pure function of the node
+  // text it embeds, so identical text reuses the embedding instead of
+  // paying another loopback call on every "related" query.
+  const vecCache = useRef(new Map<string, number[]>());
   const findRelated = async (sourceNode: CanvasNode) => {
     const b = useBoxStore.getState().board;
     if (!b) return;
@@ -1254,6 +1264,9 @@ export function App() {
     if (!queryText.trim()) return;
 
     const getVector = async (text: string): Promise<number[]> => {
+      const hit = vecCache.current.get(text);
+      if (hit !== undefined) return hit;
+      let vec: number[] | null = null;
       try {
         if (window.box?.decidePost) {
           const body = JSON.stringify({
@@ -1266,12 +1279,15 @@ export function App() {
           );
           const d = JSON.parse(raw) as { embedding?: number[] };
           if (Array.isArray(d.embedding) && d.embedding.length > 0)
-            return d.embedding;
+            vec = d.embedding;
         }
       } catch {
         // Local loopback offline fallback
       }
-      return fallbackVector(text);
+      const out = vec ?? fallbackVector(text);
+      if (vecCache.current.size > 2000) vecCache.current.clear();
+      vecCache.current.set(text, out);
+      return out;
     };
 
     const queryVec = await getVector(queryText);
