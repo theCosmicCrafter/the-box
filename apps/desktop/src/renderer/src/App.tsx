@@ -32,15 +32,12 @@ import {
     looksLikeText,
     missingScaffoldFiles,
     newNodeId,
-    oplogPath,
     parseBoard,
     parseInkSvg,
     parseLinkNote,
-    parseOplogText,
     serializeBoard,
     serializeInkSvg,
     serializeLinkNote,
-    serializeOplog,
     topKSimilar
 } from "@box/core";
 import type {
@@ -83,6 +80,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
+import { useUndoStack } from "./useUndoStack.js";
 import {
     setSpatialAudioMode,
     spatialTick,
@@ -214,47 +212,16 @@ export function App() {
     restoreBoard,
   } = useBoxStore();
 
-  // ADR-0007: session undo - O(1) snapshots (persistent arrays) captured
-  // once per user op. `gestureDirty` coalesces in-flight gestures: the
-  // first mutation after a commit captures, the rest of the gesture
-  // skips, and the next saveBoard re-arms. Edge ops stay excluded -
-  // tombstone semantics are recoverable-by-design (I-2).
-  const undoStack = useRef<{ nodes: CanvasNode[]; edges: CanvasEdge[] }[]>([]);
-  const redoStack = useRef<{ nodes: CanvasNode[]; edges: CanvasEdge[] }[]>([]);
-  const gestureDirty = useRef(false);
-  const captureUndo = () => {
-    if (gestureDirty.current) return;
-    const b = useBoxStore.getState().board;
-    if (b === null) return;
-    gestureDirty.current = true;
-    undoStack.current.push({ nodes: b.nodes, edges: b.edges });
-    if (undoStack.current.length > 200) undoStack.current.shift();
-    redoStack.current = [];
-    scheduleOplogFlush();
-  };
-
-  // ADR-0007 v2: the stack also persists to `.box/oplog-<board>.json` -
-  // debounced, atomic, and written through the same channel as boards.
-  // Deltas are computed at flush time, so the hot path stays O(1).
-  const oplogTimer = useRef<number | undefined>(undefined);
-  const scheduleOplogFlush = () => {
-    window.clearTimeout(oplogTimer.current);
-    oplogTimer.current = window.setTimeout(() => {
-      const root = useBoxStore.getState().workspaceRoot;
-      const bp = useBoxStore.getState().boardPath;
-      if (!root || !bp || !window.box) return;
-      const s = serializeOplog(undoStack.current, bp);
-      if (s) void window.box.writeFileAtomic(root, s.path, s.json);
-    }, 800);
-  };
-  const seedOplog = async (root: string, boardRel: string) => {
-    undoStack.current = [];
-    redoStack.current = [];
-    const text = await window.box?.readFile(root, oplogPath(boardRel));
-    if (text === null || text === undefined) return;
-    const stack = parseOplogText(text, boardRel);
-    if (stack) undoStack.current = stack;
-  };
+  // ADR-0007: session undo/redo stacks + oplog persistence live in
+  // useUndoStack.ts; refs keep the same `.current` access at call sites.
+  const {
+    undoStack,
+    redoStack,
+    gestureDirty,
+    captureUndo,
+    seedOplog,
+    scheduleOplogFlush,
+  } = useUndoStack();
   const moveNodeC = (id: string, x: number, y: number) => {
     captureUndo();
     moveNode(id, x, y);
@@ -595,8 +562,31 @@ export function App() {
     () => new Map(files.map((f) => [f.path, f.size])),
     [files],
   );
+  // The excerpt set only changes when placed files or their sizes do -
+  // node drags reorder nothing here, so keying the loader on this string
+  // keeps it from re-running (and re-rendering) every gesture frame.
+  const excerptKey = useMemo(() => {
+    if (!board) return "";
+    const parts: string[] = [];
+    for (const n of board.nodes) {
+      if (n.type !== "file") continue;
+      const kind = fileKind(n.file);
+      const size = fileSizes.get(n.file) ?? 0;
+      if (
+        (size <= 1024 * 1024 &&
+          ["text", "csv", "board", "code", "palette"].includes(kind)) ||
+        (kind === "other" && size <= 64 * 1024)
+      )
+        parts.push(`${n.file}:${size}`);
+    }
+    return parts.sort().join("|");
+  }, [board?.nodes, fileSizes]);
+  const fileTextsRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
-    if (!workspaceRoot || !window.box || !board) return;
+    fileTextsRef.current = fileTexts;
+  }, [fileTexts]);
+  useEffect(() => {
+    if (!workspaceRoot || !window.box || !board || excerptKey === "") return;
     const targets = board.nodes
       .filter(
         (n) =>
@@ -607,11 +597,16 @@ export function App() {
           ),
       )
       .map((n) => (n.type === "file" ? n.file : ""));
-    if (targets.length === 0) return;
+    const sniff = board.nodes.filter(
+      (n) =>
+        n.type === "file" &&
+        fileKind(n.file) === "other" &&
+        (fileSizes.get(n.file) ?? 0) <= 64 * 1024,
+    );
     void (async () => {
-      const next = new Map(fileTexts);
+      const additions = new Map<string, string>();
       for (const p of targets) {
-        if (next.has(p)) continue;
+        if (fileTextsRef.current.has(p) || additions.has(p)) continue;
         const t = await window.box!.readFile(workspaceRoot, p);
         // board JSON needs the whole doc to parse; csv a few rows;
         // excerpts just enough to read.
@@ -621,27 +616,30 @@ export function App() {
             : fileKind(p) === "csv"
               ? 8 * 1024
               : 400;
-        if (t !== null) next.set(p, t.slice(0, cap));
+        if (t !== null) additions.set(p, t.slice(0, cap));
       }
       // Sniff pass: unknown extensions get a text excerpt when their
       // bytes are mostly printable - "every text file type" without
       // needing the extension in the table.
-      for (const n of board.nodes) {
+      for (const n of sniff) {
         if (n.type !== "file") continue;
         const p = n.file;
-        if (
-          fileKind(p) === "other" &&
-          (fileSizes.get(p) ?? 0) <= 64 * 1024 &&
-          !next.has(p)
-        ) {
-          const t = await window.box!.readFile(workspaceRoot, p);
-          if (t !== null && looksLikeText(t)) next.set(p, t.slice(0, 400));
-        }
+        if (fileTextsRef.current.has(p) || additions.has(p)) continue;
+        const t = await window.box!.readFile(workspaceRoot, p);
+        if (t !== null && looksLikeText(t)) additions.set(p, t.slice(0, 400));
       }
-      setFileTexts(next);
+      // No setState when nothing new arrived - drags and unrelated board
+      // edits must not churn a fresh Map through the tree every frame.
+      if (additions.size === 0) return;
+      setFileTexts((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of additions) {
+          if (!next.has(k)) next.set(k, v);
+        }
+        return next;
+      });
     })();
-    // fileTexts accumulated; targets derived from board nodes
-  }, [board?.nodes, workspaceRoot]);
+  }, [excerptKey, workspaceRoot]);
 
   // Ink sidecars: re-read every `box-ink` target so external edits to an
   // .ink.svg refresh the overlay (the watcher re-fires this via deps).
@@ -746,21 +744,28 @@ export function App() {
 
   // While spatial audio is on, recompute pan/gain every frame from the live
   // camera; on switch-off (or board close) run one passthrough tick so
-  // already-wired elements return to neutral.
+  // already-wired elements return to neutral. The node lookup lives in a
+  // ref so the rAF loop is keyed only on the mode - rebuilding a Map and
+  // re-subscribing per board mutation was needless churn at 60fps.
+  const audioNodesRef = useRef<ReadonlyMap<string, CanvasNode>>(new Map());
+  useEffect(() => {
+    audioNodesRef.current = new Map(
+      (board?.nodes ?? []).map((n) => [n.id, n]),
+    );
+  }, [board?.nodes]);
   useEffect(() => {
     let raf = 0;
-    const nodes = () => new Map((board?.nodes ?? []).map((n) => [n.id, n]));
     const tick = () => {
       const vp = vpElRef.current;
       if (vp !== null) {
         const r = vp.getBoundingClientRect();
-        spatialTick(camRef.current, r.width, r.height, nodes());
+        spatialTick(camRef.current, r.width, r.height, audioNodesRef.current);
       }
       if (audioMode !== "off") raf = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [audioMode, board]);
+  }, [audioMode]);
 
   // FR-305: preferred app per extension wins over the OS default.
   const openExternalSmart = async (rel: string) => {
