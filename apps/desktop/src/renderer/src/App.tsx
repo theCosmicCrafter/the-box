@@ -29,6 +29,7 @@ import {
     importSpecCanvas,
     isPathRel,
     linkNoteName,
+    looksLikeText,
     missingScaffoldFiles,
     newNodeId,
     oplogPath,
@@ -165,19 +166,6 @@ declare global {
       ) => Promise<() => void>;
     };
   }
-}
-
-/** True when the bytes look like text: no NULs, <5% control chars. */
-function looksLikeText(s: string): boolean {
-  if (s.includes("")) return false;
-  const sample = s.slice(0, 4096);
-  if (sample.length === 0) return false;
-  let ctrl = 0;
-  for (const ch of sample) {
-    const c = ch.charCodeAt(0);
-    if (c < 32 && c !== 9 && c !== 10 && c !== 13) ctrl++;
-  }
-  return ctrl / sample.length < 0.05;
 }
 
 /** Execute a box-core WritePlan against the workspace, steps in order. */

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 import { describe, expect, it } from "vitest";
-import { fileKind } from "../src/index.js";
+import { fileKind, looksLikeText } from "../src/index.js";
 
 describe("fileKind", () => {
   it("maps every previewable family", () => {
@@ -42,5 +42,35 @@ describe("fileKind", () => {
   it("is case-insensitive", () => {
     expect(fileKind("PHOTO.JPG")).toBe("image");
     expect(fileKind("FONT.TTF")).toBe("font");
+  });
+
+  it("dotfiles resolve their inner name as the extension", () => {
+    expect(fileKind(".gitignore")).toBe("text");
+    expect(fileKind(".env")).toBe("text");
+    expect(fileKind(".npmrc")).toBe("text");
+    expect(fileKind("proj/.eslintrc.json")).toBe("text");
+    expect(fileKind(".unknownext")).toBe("other");
+  });
+});
+
+describe("looksLikeText", () => {
+  it("accepts prose, code, and data", () => {
+    expect(looksLikeText("# Hello\n\nSome **markdown** prose.\n")).toBe(true);
+    expect(looksLikeText("const x = 1;\nfunction f() {}\n")).toBe(true);
+    expect(looksLikeText('{"a":1,"b":[2,3]}\n')).toBe(true);
+    expect(looksLikeText("line1\nline2\tTabbed\r\n")).toBe(true);
+  });
+
+  it("rejects binaries and empty input", () => {
+    expect(looksLikeText("")).toBe(false);
+    expect(looksLikeText("PNG\x89\x50\x4e\x47\x00\x01\x02")).toBe(false);
+    expect(looksLikeText("a\0b\0c")).toBe(false);
+    // >5% C0 control chars (excluding tab/lf/cr) reads as binary
+    expect(looksLikeText("ab\x01\x02\x03\x04\x05\x06\x07\x08")).toBe(false);
+  });
+
+  it("NUL anywhere in the input disqualifies, not just the sample", () => {
+    const s = "x".repeat(5000) + "\0";
+    expect(looksLikeText(s)).toBe(false);
   });
 });
