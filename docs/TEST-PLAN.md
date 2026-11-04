@@ -173,6 +173,22 @@ Esc cancels), per-row "place at viewport center", deterministic "place all"
 grid via `gridPlaceRect`. The FileTree stays unfiltered alongside it.
 
 Live-verified 2026-10-13 (real CDP input, chaos workspace):
+
+## 9. Quality-of-life surfaces (post-audit additions)
+
+| surface                                   | coverage                                              | status        |
+| ----------------------------------------- | ----------------------------------------------------- | ------------- |
+| Status bar (counts + zoom readout)        | typecheck/lint; render is pure props                  | unit          |
+| Status-bar zoom controls (-/%/+/Fit)      | `zoomRequest` nonce prop, `zoomAt`/`zoomToFit` math   | unit          |
+| Tab middle-click close + Ctrl+W           | TabBar `onAuxClick`, App global keydown               | unit          |
+| FileTree context menu (new/open/reveal/…) | shared `ContextMenu`; existing bridge commands        | unit          |
+| `.box/tmp` + `.box/thumbs` GC             | `gc_box_dirs` adversarial tests (stale/fresh/cap)     | unit          |
+| Excerpt-loader + spatial-audio perf fixes | keyed effects/refs; no behavior change                | unit          |
+
+Live verification owed on next app session: status bar renders and
+zoom % tracks wheel zoom; tree menu creates `untitled.md` in the right
+dir and trash round-trips through the watcher; middle-click and Ctrl+W
+close the active board without touching `.box.canvas` files.
 ink draw writes `untitled-1.md.ink.svg` (`box-format: box.ink/1`,
 pressure-varying polygon, node gains `box-ink`); ink erase removes strokes
 and trashes the emptied sidecar (Recoverable by design, `box-ink` key
