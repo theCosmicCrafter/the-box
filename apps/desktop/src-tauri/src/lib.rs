@@ -244,6 +244,64 @@ fn write_atomic_bytes(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String
     Ok(())
 }
 
+/// Housekeeping for `.box`, run once per workspace open:
+/// - `.box/tmp`: atomic-write temps (`w-*.tmp`) orphaned by a crash are
+///   swept once they are a day old; younger files may belong to a live write.
+/// - `.box/thumbs`: the derived thumbnail cache is capped so a large or
+///   long-lived workspace cannot grow it without bound; oldest evicted.
+/// Name filters keep foreign files inside `.box` untouched. All failures
+/// are silent - a dirty cache dir is not fatal to opening a workspace.
+fn gc_box_dirs(root: &Path) {
+    let tmp_dir = root.join(".box").join("tmp");
+    let cutoff = std::time::SystemTime::now() - Duration::from_secs(24 * 3600);
+    if let Ok(rd) = fs::read_dir(&tmp_dir) {
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if !(name.starts_with("w-") && name.ends_with(".tmp")) {
+                continue;
+            }
+            let stale = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| t < cutoff)
+                .unwrap_or(false);
+            if stale {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+
+    const THUMB_CAP: usize = 512;
+    let thumbs = root.join(".box").join("thumbs");
+    let mut entries: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    if let Ok(rd) = fs::read_dir(&thumbs) {
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if !(name.starts_with("thumb-") && name.ends_with(".png")) {
+                continue;
+            }
+            if let Ok(md) = e.metadata() {
+                if md.is_file() {
+                    entries.push((
+                        e.path(),
+                        md.modified().unwrap_or(std::time::UNIX_EPOCH),
+                    ));
+                }
+            }
+        }
+    }
+    let excess = entries.len().saturating_sub(THUMB_CAP);
+    if excess > 0 {
+        entries.sort_by_key(|(_, t)| *t);
+        for (p, _) in entries.into_iter().take(excess) {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
 fn uuid() -> String {
     // RFC4122 v4 from system rng-free entropy: timestamp + counter + pid.
     // Collision odds inside .box/tmp are what matter (same-ms, same pid).
@@ -478,6 +536,7 @@ fn watch(app: AppHandle, state: State<'_, AppState>, root: String) -> CmdResult 
     let root_pb = PathBuf::from(&root);
     *state.workspace_root.lock().unwrap() = Some(root_pb.clone());
     save_last_workspace(&app, &root);
+    gc_box_dirs(&root_pb);
 
     let (tx, rx) = channel();
     let mut watcher = match RecommendedWatcher::new(tx, Config::default()) {

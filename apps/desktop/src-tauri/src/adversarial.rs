@@ -802,3 +802,71 @@ fn open_with_app_must_be_absolute_existing_file() {
         &ws.to_string_lossy().replace('\\', "/")
     ));
 }
+
+// -- gc_box_dirs: .box/tmp sweep + thumbs cap --
+
+#[test]
+fn gc_tmp_sweeps_only_stale_write_temps() {
+    let ws = tmpdir("gctmp");
+    let tmp = ws.join(".box").join("tmp");
+    fs::create_dir_all(&tmp).unwrap();
+    let day = std::time::Duration::from_secs(24 * 3600);
+    let now = std::time::SystemTime::now();
+
+    // Stale orphan: w-*.tmp older than a day.
+    let stale = tmp.join("w-deadbeef.tmp");
+    fs::write(&stale, b"partial").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&stale)
+        .unwrap()
+        .set_modified(now - day - std::time::Duration::from_secs(60))
+        .unwrap();
+    // Fresh temp: a write may be in flight.
+    let fresh = tmp.join("w-live1234.tmp");
+    fs::write(&fresh, b"partial").unwrap();
+    // Foreign files must survive regardless of age.
+    let foreign = tmp.join("notes.txt");
+    fs::write(&foreign, b"keep").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&foreign)
+        .unwrap()
+        .set_modified(now - day * 3)
+        .unwrap();
+    let wrong_ext = tmp.join("w-notes.md");
+    fs::write(&wrong_ext, b"keep").unwrap();
+
+    gc_box_dirs(&ws);
+
+    assert!(!stale.exists(), "stale w-*.tmp must be swept");
+    assert!(fresh.exists(), "fresh w-*.tmp may be mid-write");
+    assert!(foreign.exists(), "non-temp files are not ours to delete");
+    assert!(wrong_ext.exists(), "only .tmp suffix is swept");
+}
+
+#[test]
+fn gc_thumbs_caps_cache_and_spares_foreign_files() {
+    let ws = tmpdir("gcthumb");
+    let thumbs = ws.join(".box").join("thumbs");
+    fs::create_dir_all(&thumbs).unwrap();
+    for i in 0..(512 + 5) {
+        fs::write(thumbs.join(format!("thumb-{i:016x}.png")), b"png").unwrap();
+    }
+    // A foreign file in the same dir is never evicted.
+    fs::write(thumbs.join("keepme.txt"), b"keep").unwrap();
+
+    gc_box_dirs(&ws);
+
+    let remaining: Vec<_> = fs::read_dir(&thumbs)
+        .unwrap()
+        .flatten()
+        .filter(|e| {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            n.starts_with("thumb-") && n.ends_with(".png")
+        })
+        .collect();
+    assert_eq!(remaining.len(), 512, "thumb cache must cap at 512");
+    assert!(thumbs.join("keepme.txt").exists());
+}
