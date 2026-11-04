@@ -244,11 +244,13 @@ fn write_atomic_bytes(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String
     Ok(())
 }
 
-/// Housekeeping for `.box`, run once per workspace open:
+/// Housekeeping for `.box`, run once per workspace open.
+///
 /// - `.box/tmp`: atomic-write temps (`w-*.tmp`) orphaned by a crash are
 ///   swept once they are a day old; younger files may belong to a live write.
 /// - `.box/thumbs`: the derived thumbnail cache is capped so a large or
 ///   long-lived workspace cannot grow it without bound; oldest evicted.
+///
 /// Name filters keep foreign files inside `.box` untouched. All failures
 /// are silent - a dirty cache dir is not fatal to opening a workspace.
 fn gc_box_dirs(root: &Path) {
@@ -285,10 +287,7 @@ fn gc_box_dirs(root: &Path) {
             }
             if let Ok(md) = e.metadata() {
                 if md.is_file() {
-                    entries.push((
-                        e.path(),
-                        md.modified().unwrap_or(std::time::UNIX_EPOCH),
-                    ));
+                    entries.push((e.path(), md.modified().unwrap_or(std::time::UNIX_EPOCH)));
                 }
             }
         }
