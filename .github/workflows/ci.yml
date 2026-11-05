@@ -61,6 +61,7 @@ jobs:
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: apps/desktop/src-tauri
       # FOSS gates activate when code exists:
       # - run: npx reuse lint
 
