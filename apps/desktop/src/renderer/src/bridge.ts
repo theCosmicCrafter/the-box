@@ -5,7 +5,7 @@
 // (Windows custom schemes serve at https://box.localhost, real box://
 // elsewhere).
 
-import type { Delta, ProblemItem } from "@box/core";
+import type { Delta, ProblemItem, WritePlan } from "@box/core";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { onWorkspaceChanged, requestSync, watchSyncSession } from "./sync.js";
@@ -47,13 +47,73 @@ export interface FileResult {
   error?: string;
 }
 
+/** The full window.box surface installed by installBoxBridge. */
+export interface BoxApi {
+  openWorkspace: () => Promise<WorkspaceOpenResult | null>;
+  rescan: (root: string) => Promise<WorkspaceFile[]>;
+  lastWorkspace: () => Promise<string | null>;
+  watchWorkspace: (
+    root: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onWorkspaceChanged: (cb: (e: WorkspaceChanged) => void) => () => void;
+  requestSync: () => Promise<void>;
+  readFile: (root: string, rel: string) => Promise<string | null>;
+  writeFileAtomic: (
+    root: string,
+    rel: string,
+    content: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  trashFile: (
+    root: string,
+    rel: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  appendTombstone: (
+    root: string,
+    edgeId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+  openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
+  revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+  openWith: (
+    rel: string,
+    app: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  pickApp: () => Promise<string | null>;
+  importFiles: (paths: string[]) => Promise<ImportResult>;
+  newFile: (
+    dir: string,
+    stem: string,
+    ext: string,
+    content: string,
+  ) => Promise<FileResult>;
+  newBinaryFile: (
+    dir: string,
+    stem: string,
+    ext: string,
+    b64: string,
+  ) => Promise<FileResult>;
+  copyFile: (rel: string) => Promise<FileResult>;
+  fileIcon: (rel: string) => Promise<FileResult>;
+  fileThumb: (rel: string) => Promise<FileResult>;
+  pickFiles: (imagesOnly: boolean) => Promise<string[]>;
+  decidePost: (url: string, body: string) => Promise<string>;
+  onFileDrop: (
+    cb: (paths: string[], x: number, y: number) => void,
+  ) => Promise<() => void>;
+}
+
+declare global {
+  interface Window {
+    box?: BoxApi;
+  }
+}
+
 /** "windows" | "macos" | "linux" | "ios" | "android" - set at bridge init. */
 export let boxPlatform = "unknown";
 
 export async function installBoxBridge(): Promise<void> {
   boxPlatform = await invoke<string>("platform");
-  const g = window as unknown as { box: unknown };
-  g.box = {
+  const api: BoxApi = {
     openWorkspace: (): Promise<WorkspaceOpenResult | null> =>
       invoke("open_workspace"),
     rescan: (root: string): Promise<WorkspaceFile[]> =>
@@ -77,6 +137,9 @@ export async function installBoxBridge(): Promise<void> {
       invoke("fs_append_tombstone", { root, edgeId }),
     openExternal: (rel: string): Promise<CmdResult> =>
       invoke("open_external", { rel }),
+    // In-app "Report an issue" - Rust allowlists the repo issues area.
+    openUrl: (url: string): Promise<CmdResult> =>
+      invoke("open_url", { url }),
     revealFile: (rel: string): Promise<CmdResult> =>
       invoke("reveal_file", { rel }),
     // FR-305: user-picked app gets the file as argv[1] (detached spawn).
@@ -126,4 +189,28 @@ export async function installBoxBridge(): Promise<void> {
         if (p.type === "drop") cb(p.paths, p.position.x, p.position.y);
       }),
   };
+  window.box = api;
+}
+
+/** Execute a box-core WritePlan against the workspace, steps in order. */
+export async function applyPlan(
+  root: string,
+  plan: WritePlan,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const api = window.box;
+  if (!api) return ["no bridge"];
+  for (const step of plan.steps) {
+    const r =
+      step.op === "write-atomic"
+        ? await api.writeFileAtomic(root, step.path, step.content)
+        : step.op === "trash"
+          ? await api.trashFile(root, step.path)
+          : await api.appendTombstone(root, step.edgeId);
+    if (!r.ok)
+      errors.push(
+        `${step.op} ${"path" in step ? step.path : step.edgeId}: ${r.error}`,
+      );
+  }
+  return errors;
 }

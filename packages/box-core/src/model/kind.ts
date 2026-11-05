@@ -314,20 +314,45 @@ export function fileKind(path: string): FileKind {
   const lower = base.toLowerCase();
   // extensionless well-known text files (Dockerfile, Makefile, LICENSE...)
   const dot = lower.lastIndexOf(".");
-  const ext = dot <= 0 ? lower : lower.slice(dot + 1);
+  // Dotfiles (".gitignore", ".env") have dot === 0: the leading dot is not
+  // an extension separator, so ".env" must resolve via the "env" entry,
+  // not a literal ".env" key that can never exist in BY_EXT.
+  const ext = dot < 0 ? lower : dot === 0 ? lower.slice(1) : lower.slice(dot + 1);
   const byExt = BY_EXT[ext];
   if (byExt !== undefined) return byExt;
-  if (dot < 0) {
-    // no dot at all: known basenames read as text
+  if (dot <= 0) {
+    // no dot at all (or a lone leading dot): known basenames read as text
+    const stem = dot === 0 ? lower.slice(1) : lower;
     if (
-      lower === "dockerfile" ||
-      lower === "makefile" ||
-      lower === "license" ||
-      lower === "readme" ||
-      lower === "changelog"
+      stem === "dockerfile" ||
+      stem === "makefile" ||
+      stem === "license" ||
+      stem === "readme" ||
+      stem === "changelog" ||
+      stem === "gitignore" ||
+      stem === "npmrc" ||
+      stem === "editorconfig"
     )
       return "text";
     return "other";
   }
   return "other";
+}
+
+/**
+ * Text sniff for the "other" kind - the fallback when the extension table
+ * has no answer. True when the content carries no NUL bytes and stays
+ * under 5% C0 control characters (tab/LF/CR allowed). NUL is checked on
+ * the whole input: text never contains it, binaries almost always do.
+ */
+export function looksLikeText(s: string): boolean {
+  if (s.includes("\0")) return false;
+  const sample = s.slice(0, 4096);
+  if (sample.length === 0) return false;
+  let ctrl = 0;
+  for (const ch of sample) {
+    const c = ch.charCodeAt(0);
+    if (c < 32 && c !== 9 && c !== 10 && c !== 13) ctrl++;
+  }
+  return ctrl / sample.length < 0.05;
 }

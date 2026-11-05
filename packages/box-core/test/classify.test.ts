@@ -4,7 +4,7 @@
 // identity (sha > size+mtime > size).
 
 import { describe, it, expect } from "vitest";
-import { classifyFileSet, routePath } from "../src/watch/classify.js";
+import { classifyFileSet } from "../src/watch/classify.js";
 import type { FileEntry } from "../src/vault/vault.js";
 
 const prev = (entries: [string, number, number?][]) =>
@@ -75,33 +75,22 @@ describe("classifyFileSet", () => {
     expect(d).toHaveLength(2);
   });
 
-  it("sha256 wins over size for rename pairing", () => {
+  it("same-size no-mtime collision pairs with first sorted candidate", () => {
+    // No content hashing in production (O(workspace) per scan); the
+    // residual collision class is documented in classify.ts. With equal
+    // sizes and no mtimes, the alphabetically-first create wins the pair.
     const before = {
-      files: new Map([["old.md", { size: 10, sha256: "aa" }]]),
+      files: new Map([["old.md", { size: 10 }]]),
     };
     const d = classifyFileSet(before, [
-      { path: "bait.md", size: 10, sha256: "bb" },
-      { path: "real.md", size: 10, sha256: "aa" },
+      { path: "bait.md", size: 10 },
+      { path: "real.md", size: 10 },
     ]);
     expect(d).toContainEqual({
       kind: "renamed",
       path: "old.md",
-      to: "real.md",
+      to: "bait.md",
     });
-    expect(d).toContainEqual({ kind: "created", path: "bait.md" });
-  });
-});
-
-describe("routePath", () => {
-  it.each([
-    [".box/tombstones.json", "tombstone"],
-    [".box/main.box.canvas", "board"],
-    ["link-7f3a9c2b1d4e5f6a.md", "link-note"],
-    ["notes/link-7f3a9c2b1d4e5f6a.md", "link-note"],
-    ["img/a.png.ink.svg", "ink"],
-    ["img/a.png", "object"],
-    ["notes/plain.md", "object"],
-  ])("routePath(%j) = %s", (p, expected) => {
-    expect(routePath(p)).toBe(expected);
+    expect(d).toContainEqual({ kind: "created", path: "real.md" });
   });
 });

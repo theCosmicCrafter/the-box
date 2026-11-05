@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // Simulates runSync's reconcile pass loop against a real workspace dir.
 // Usage: node tools/converge-sim.mjs <wsRoot>
 import {

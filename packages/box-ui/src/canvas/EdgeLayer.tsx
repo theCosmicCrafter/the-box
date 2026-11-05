@@ -9,6 +9,7 @@
 
 import type { Board, CanvasEdge, CanvasNode, Side } from "@box/core";
 import { edgeVisible, type WorldRect } from "./cull.js";
+import { NODE_COLOR_PRESETS, nodeTint } from "./NodeView.js";
 
 export const NORMALS: Record<Side, { nx: number; ny: number }> = {
   top: { nx: 0, ny: -1 },
@@ -71,6 +72,7 @@ export interface EdgeLayerProps {
   board: Board;
   brokenEdges: Set<string>;
   selectedId?: string | null;
+  dimmedEdges?: Set<string> | undefined;
   onSelect?: (edgeId: string | null) => void;
   draft?: DraftEdge | null;
   /** World-space viewport rect; off-view edges get display:none (culled). */
@@ -87,6 +89,7 @@ export function EdgeLayer({
   board,
   brokenEdges,
   selectedId,
+  dimmedEdges,
   onSelect,
   draft,
   viewRect,
@@ -131,8 +134,16 @@ export function EdgeLayer({
     ];
   });
 
-  const marker = (end: CanvasEdge["fromEnd"], broken: boolean) =>
-    end === "arrow" ? `url(#arrowhead${broken ? "-broken" : ""})` : undefined;
+  const marker = (
+    end: CanvasEdge["fromEnd"],
+    broken: boolean,
+    color?: string,
+  ) => {
+    if (end !== "arrow") return undefined;
+    if (broken) return "url(#arrowhead-broken)";
+    if (color && NODE_COLOR_PRESETS[color]) return `url(#arrowhead-${color})`;
+    return "url(#arrowhead)";
+  };
 
   return (
     <svg
@@ -163,36 +174,64 @@ export function EdgeLayer({
         >
           <path d="M 0 0 L 10 5 L 0 10 z" className="edge-arrow broken" />
         </marker>
+        {Object.entries(NODE_COLOR_PRESETS).map(([k, hex]) => (
+          <marker
+            key={k}
+            id={`arrowhead-${k}`}
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={hex} />
+          </marker>
+        ))}
       </defs>
-      {paths.map(({ e, d, mid, broken }) => (
-        <g key={e.id}>
-          <path
-            d={d}
-            className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""}`}
-            markerStart={marker(e.fromEnd, broken)}
-            markerEnd={marker(e.toEnd, broken)}
-          />
-          {onSelect !== undefined && interactive && (
+      {paths.map(({ e, d, mid, broken }) => {
+        const isDimmed = dimmedEdges?.has(e.id) ?? false;
+        const tint = nodeTint(e.color);
+        const dash =
+          e.lineStyle === "dashed"
+            ? "6 4"
+            : e.lineStyle === "dotted"
+              ? "2 3"
+              : undefined;
+        return (
+          <g key={e.id}>
             <path
               d={d}
-              className="edge-hit"
-              onPointerDown={(ev) => {
-                ev.stopPropagation();
-                onSelect(e.id);
+              className={`edge ${broken ? "broken" : ""} ${selectedId === e.id ? "selected" : ""} ${isDimmed ? "edge-dimmed" : ""}`}
+              style={{
+                stroke: tint ?? undefined,
+                strokeDasharray: dash,
               }}
+              markerStart={marker(e.fromEnd, broken, e.color)}
+              markerEnd={marker(e.toEnd, broken, e.color)}
             />
-          )}
-          {typeof e.label === "string" && e.label !== "" && (
-            <text
-              className={`edge-label ${selectedId === e.id ? "selected" : ""}`}
-              x={mid.x}
-              y={mid.y}
-            >
-              {e.label}
-            </text>
-          )}
-        </g>
-      ))}
+            {onSelect !== undefined && interactive && (
+              <path
+                d={d}
+                className="edge-hit"
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  onSelect(e.id);
+                }}
+              />
+            )}
+            {typeof e.label === "string" && e.label !== "" && (
+              <text
+                className={`edge-label ${selectedId === e.id ? "selected" : ""} ${isDimmed ? "edge-dimmed" : ""}`}
+                x={mid.x}
+                y={mid.y}
+              >
+                {e.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
       {draft && (
         <path
           d={edgePathD(draft.from, draft.to)}
@@ -232,13 +271,25 @@ export function EdgeHandles({
   const byId = new Map(board.nodes.map((n) => [n.id, n]));
   const from = byId.get(e.fromNode);
   const to = byId.get(e.toNode);
-  if (!from || !to) return null; // broken edge - stubs have no handle target
-  const a1 = anchor(from, e.fromSide ?? "right");
-  const a2 = anchor(to, e.toSide ?? "left");
+  if (!from && !to) return null; // both gone - surfaced via brokenEdges, no geometry exists
+  const rawA1 = from ? anchor(from, e.fromSide ?? "right") : null;
+  const rawA2 = to ? anchor(to, e.toSide ?? "left") : null;
+  const a1 = rawA1 ?? {
+    x: rawA2!.x - 60 * rawA2!.nx,
+    y: rawA2!.y - 60 * rawA2!.ny,
+    nx: rawA2!.nx,
+    ny: rawA2!.ny,
+  };
+  const a2 = rawA2 ?? {
+    x: rawA1!.x + 60 * rawA1!.nx,
+    y: rawA1!.y + 60 * rawA1!.ny,
+    nx: rawA1!.nx,
+    ny: rawA1!.ny,
+  };
   return (
     <svg className="edge-handles" viewBox="-1000000 -1000000 2000000 2000000">
       <circle
-        className="edge-endpoint"
+        className={`edge-endpoint ${!from ? "broken" : ""}`}
         cx={a1.x}
         cy={a1.y}
         r={endR}
@@ -249,7 +300,7 @@ export function EdgeHandles({
         }}
       />
       <circle
-        className="edge-endpoint"
+        className={`edge-endpoint ${!to ? "broken" : ""}`}
         cx={a2.x}
         cy={a2.y}
         r={endR}

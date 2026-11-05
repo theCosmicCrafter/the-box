@@ -6,12 +6,13 @@
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, RecvTimeoutError};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 // ---- types matching the renderer contract (were WorkspaceFile et al.) ----
@@ -94,11 +95,46 @@ fn is_path_rel(p: &str) -> bool {
     true
 }
 
+// fs::canonicalize returns \\?\ verbatim paths on Windows; ShellExecute
+// and Explorer reject those, so strip the prefix for ordinary drive
+// paths (UNC shares keep it - they need it).
+fn simplify_verbatim(p: PathBuf) -> PathBuf {
+    let s = p.as_os_str().to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        if !rest.starts_with(r"UNC\") {
+            return PathBuf::from(rest);
+        }
+    }
+    p
+}
+
 fn resolve_inside(root: &Path, rel: &str) -> Option<PathBuf> {
     if !is_path_rel(rel) {
         return None;
     }
-    Some(root.join(rel.split('/').collect::<PathBuf>()))
+    let candidate = root.join(rel.split('/').collect::<PathBuf>());
+    // Lexical containment is not enough: a symlink or junction inside the
+    // workspace can point outside it, and is_path_rel cannot see that.
+    // Canonicalize the deepest existing ancestor - covering both existing
+    // targets and not-yet-created write paths - re-append the missing
+    // tail, and require the result to stay under the canonical root.
+    // TOCTOU residual: a local attacker racing a symlink swap between
+    // check and use is out of scope for a single-user local app.
+    let canon_root = simplify_verbatim(fs::canonicalize(root).ok()?);
+    let mut ancestor = candidate.as_path();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(canon) = fs::canonicalize(ancestor) {
+            let mut resolved = simplify_verbatim(canon);
+            for seg in tail.iter().rev() {
+                resolved.push(seg);
+            }
+            return resolved.starts_with(&canon_root).then_some(resolved);
+        }
+        let name = ancestor.file_name()?;
+        tail.push(name.to_os_string());
+        ancestor = ancestor.parent()?;
+    }
 }
 
 // ---- scan (port of scanDir) ----
@@ -208,6 +244,63 @@ fn write_atomic_bytes(root: &Path, rel: &str, bytes: &[u8]) -> Result<(), String
     Ok(())
 }
 
+/// Housekeeping for `.box`, run once per workspace open.
+///
+/// - `.box/tmp`: atomic-write temps (`w-*.tmp`) orphaned by a crash are
+///   swept once they are a day old; younger files may belong to a live write.
+/// - `.box/thumbs`: the derived thumbnail cache is capped so a large or
+///   long-lived workspace cannot grow it without bound; oldest evicted.
+///
+/// Name filters keep foreign files inside `.box` untouched. All failures
+/// are silent - a dirty cache dir is not fatal to opening a workspace.
+fn gc_box_dirs(root: &Path) {
+    let tmp_dir = root.join(".box").join("tmp");
+    let cutoff = std::time::SystemTime::now() - Duration::from_secs(24 * 3600);
+    if let Ok(rd) = fs::read_dir(&tmp_dir) {
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if !(name.starts_with("w-") && name.ends_with(".tmp")) {
+                continue;
+            }
+            let stale = e
+                .metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| t < cutoff)
+                .unwrap_or(false);
+            if stale {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+
+    const THUMB_CAP: usize = 512;
+    let thumbs = root.join(".box").join("thumbs");
+    let mut entries: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    if let Ok(rd) = fs::read_dir(&thumbs) {
+        for e in rd.flatten() {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            if !(name.starts_with("thumb-") && name.ends_with(".png")) {
+                continue;
+            }
+            if let Ok(md) = e.metadata() {
+                if md.is_file() {
+                    entries.push((e.path(), md.modified().unwrap_or(std::time::UNIX_EPOCH)));
+                }
+            }
+        }
+    }
+    let excess = entries.len().saturating_sub(THUMB_CAP);
+    if excess > 0 {
+        entries.sort_by_key(|(_, t)| *t);
+        for (p, _) in entries.into_iter().take(excess) {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
 fn uuid() -> String {
     // RFC4122 v4 from system rng-free entropy: timestamp + counter + pid.
     // Collision odds inside .box/tmp are what matter (same-ms, same pid).
@@ -225,28 +318,84 @@ fn uuid() -> String {
     )
 }
 
+pub const TOMBSTONE_TTL_MS: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days per DATA-MODEL §4.3 & ADR-0011
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TombstoneRecord {
+    #[serde(rename = "edgeId")]
+    pub edge_id: String,
+    pub at: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RawTombstone {
+    Legacy(String),
+    Record {
+        #[serde(rename = "edgeId")]
+        edge_id: String,
+        at: Option<u64>,
+    },
+}
+
 fn append_tombstone(root: &Path, edge_id: &str) -> Result<(), String> {
     let rel = ".box/tombstones.json";
     let abs = resolve_inside(root, rel).ok_or("path escapes workspace")?;
-    let raw = fs::read_to_string(&abs).unwrap_or_else(|_| "[]".into());
-    let mut ids: Vec<String> = serde_json::from_str(&raw)
-        .ok()
-        .and_then(|v: serde_json::Value| {
-            v.as_array().map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
-                    .collect()
-            })
+    // Only a missing or undecodable ledger starts fresh. Any other read
+    // failure (AV/indexer share lock, permissions) must NOT fall through to
+    // an empty list: the write below would clobber every recorded tombstone
+    // and deleted arrows would resurrect on the next reconcile (DATA-MODEL 4.3).
+    let raw = match fs::read_to_string(&abs) {
+        Ok(s) => s,
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.kind() == std::io::ErrorKind::InvalidData =>
+        {
+            "[]".into()
+        }
+        Err(e) => return Err(format!("tombstone ledger unreadable: {e}")),
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let raw_entries: Vec<RawTombstone> = serde_json::from_str(&raw).unwrap_or_default();
+    let mut records: Vec<TombstoneRecord> = raw_entries
+        .into_iter()
+        .filter_map(|entry| match entry {
+            RawTombstone::Legacy(id) if !id.is_empty() => Some(TombstoneRecord {
+                edge_id: id,
+                at: now,
+            }),
+            RawTombstone::Record { edge_id, at } if !edge_id.is_empty() => {
+                let entry_at = at.unwrap_or(now);
+                if now.saturating_sub(entry_at) <= TOMBSTONE_TTL_MS {
+                    Some(TombstoneRecord {
+                        edge_id,
+                        at: entry_at,
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
         })
-        .unwrap_or_default();
-    if !ids.iter().any(|i| i == edge_id) {
-        ids.push(edge_id.to_string());
+        .collect();
+
+    if let Some(existing) = records.iter_mut().find(|r| r.edge_id == edge_id) {
+        existing.at = now;
+    } else {
+        records.push(TombstoneRecord {
+            edge_id: edge_id.to_string(),
+            at: now,
+        });
     }
-    write_atomic(
-        root,
-        rel,
-        &format!("{}\n", serde_json::to_string(&ids).unwrap()),
-    )
+
+    records.sort_by(|a, b| a.edge_id.cmp(&b.edge_id));
+
+    let formatted = serde_json::to_string_pretty(&records).map_err(|e| e.to_string())?;
+    write_atomic(root, rel, &format!("{formatted}\n"))
 }
 
 // ---- MIME (same deliberate map as the Electron handler) ----
@@ -346,12 +495,47 @@ fn last_workspace(app: AppHandle) -> Option<String> {
 }
 
 const DEBOUNCE: Duration = Duration::from_millis(150);
+// DATA-MODEL 5.2: the quiet window extends while events keep arriving but is
+// capped, so a sustained stream (long copy, render writing into the workspace)
+// still refreshes the canvas instead of starving it forever.
+const DEBOUNCE_MAX: Duration = Duration::from_secs(2);
+
+/// Coalesce raw fs events into one `emit` per quiet window. A burst is
+/// flushed after `quiet` of silence OR once it has run `max`, whichever
+/// comes first; a continuing stream then starts the next burst.
+fn debounce_events<T>(rx: &Receiver<T>, quiet: Duration, max: Duration, mut emit: impl FnMut()) {
+    loop {
+        match rx.recv_timeout(quiet) {
+            Ok(_) => {
+                let burst_start = Instant::now();
+                loop {
+                    let left = max.saturating_sub(burst_start.elapsed());
+                    if left.is_zero() {
+                        emit();
+                        break;
+                    }
+                    match rx.recv_timeout(quiet.min(left)) {
+                        Ok(_) => continue,
+                        Err(RecvTimeoutError::Timeout) => {
+                            emit();
+                            break;
+                        }
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
 
 #[tauri::command]
 fn watch(app: AppHandle, state: State<'_, AppState>, root: String) -> CmdResult {
     let root_pb = PathBuf::from(&root);
     *state.workspace_root.lock().unwrap() = Some(root_pb.clone());
     save_last_workspace(&app, &root);
+    gc_box_dirs(&root_pb);
 
     let (tx, rx) = channel();
     let mut watcher = match RecommendedWatcher::new(tx, Config::default()) {
@@ -364,24 +548,10 @@ fn watch(app: AppHandle, state: State<'_, AppState>, root: String) -> CmdResult 
 
     // Debounce: emit one "box:fs-dirty" per quiet window, not per event.
     let app2 = app.clone();
-    std::thread::spawn(move || loop {
-        match rx.recv_timeout(DEBOUNCE) {
-            Ok(_) => {
-                // got activity: drain until quiet
-                loop {
-                    match rx.recv_timeout(DEBOUNCE) {
-                        Ok(_) => continue,
-                        Err(RecvTimeoutError::Timeout) => {
-                            let _ = app2.emit("box:fs-dirty", ());
-                            break;
-                        }
-                        Err(RecvTimeoutError::Disconnected) => return,
-                    }
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => return,
-        }
+    std::thread::spawn(move || {
+        debounce_events(&rx, DEBOUNCE, DEBOUNCE_MAX, || {
+            let _ = app2.emit("box:fs-dirty", ());
+        });
     });
 
     *state.watch.lock().unwrap() = Some(WatchGuard { _watcher: watcher });
@@ -417,6 +587,28 @@ fn fs_read(state: State<'_, AppState>, root: String, rel: String) -> Option<Stri
     // Node's readFile(path, "utf8") lossy-decodes (U+FFFD) rather than
     // failing - match that or binary files read differently vs Electron.
     Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[tauri::command]
+fn fs_read_batch(
+    state: State<'_, AppState>,
+    root: String,
+    rels: Vec<String>,
+) -> HashMap<String, Option<String>> {
+    let mut out = HashMap::with_capacity(rels.len());
+    let Ok(root_pb) = bound_root(&state, &root) else {
+        for rel in rels {
+            out.insert(rel, None);
+        }
+        return out;
+    };
+    for rel in rels {
+        let content = resolve_inside(&root_pb, &rel)
+            .and_then(|abs| fs::read(abs).ok())
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
+        out.insert(rel, content);
+    }
+    out
 }
 
 #[tauri::command]
@@ -498,6 +690,21 @@ fn reveal_file(state: State<'_, AppState>, rel: String) -> CmdResult {
 #[tauri::command]
 fn platform() -> &'static str {
     std::env::consts::OS
+}
+
+// In-app "Report an issue": opens the project tracker in the default
+// browser. The URL is allowlisted to this repo's issues area - a generic
+// open-any-URL command would be an unexpected remote-triggerable surface.
+#[tauri::command]
+fn open_url(url: String) -> CmdResult {
+    const ALLOWED: &str = "https://github.com/theCosmicCrafter/the-box/issues";
+    if !url.starts_with(ALLOWED) {
+        return cmd_err("url outside allowed issues area");
+    }
+    match opener::open(&url) {
+        Ok(()) => cmd_ok(),
+        Err(e) => cmd_err(e),
+    }
 }
 
 // FR-305 "Open with": the user picks an app per extension; the chosen exe
@@ -1062,20 +1269,44 @@ fn is_loopback_url(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("http://") else {
         return false;
     };
-    for host in ["127.0.0.1", "localhost", "[::1]"] {
-        if let Some(tail) = rest.strip_prefix(host) {
-            if tail.is_empty() || tail.starts_with(':') || tail.starts_with('/') {
-                return true;
-            }
-        }
+    // The authority ends at the first '/', '?' or '#'. Only the authority
+    // may name the host: a prefix match on the raw string is bypassable
+    // with userinfo (`http://127.0.0.1:8770@evil.com/` connects to evil.com).
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..end];
+    if authority.contains('@') || authority.contains('\\') {
+        return false;
     }
-    false
+    let host_end = if authority.starts_with('[') {
+        match authority.find(']') {
+            Some(i) => i + 1,
+            None => return false,
+        }
+    } else {
+        authority.find(':').unwrap_or(authority.len())
+    };
+    let (host, tail) = authority.split_at(host_end);
+    let port_ok = match tail.strip_prefix(':') {
+        None => tail.is_empty(),
+        Some(p) => !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit()),
+    };
+    port_ok && (host == "127.0.0.1" || host == "[::1]" || host.eq_ignore_ascii_case("localhost"))
 }
+
+// decide_post is the renderer's only network egress (CSP connect-src blocks
+// http in the webview). Loopback-only is enforced above; these caps stop a
+// buggy renderer or hostile local service from turning it into a memory
+// pump - requests are small decision payloads, responses are JSON answers.
+const DECIDE_MAX_REQUEST: usize = 256 * 1024;
+const DECIDE_MAX_RESPONSE: u64 = 1024 * 1024;
 
 #[tauri::command]
 fn decide_post(url: String, body: String) -> Result<String, String> {
     if !is_loopback_url(&url) {
         return Err("decide_post: non-loopback url refused".to_string());
+    }
+    if body.len() > DECIDE_MAX_REQUEST {
+        return Err("decide_post: request body too large".to_string());
     }
     let config = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(5)))
@@ -1086,7 +1317,15 @@ fn decide_post(url: String, body: String) -> Result<String, String> {
         .content_type("application/json")
         .send(body.as_bytes())
         .map_err(|e| e.to_string())?;
-    res.body_mut().read_to_string().map_err(|e| e.to_string())
+    let mut limited = res.body_mut().as_reader().take(DECIDE_MAX_RESPONSE + 1);
+    let mut buf = String::new();
+    limited
+        .read_to_string(&mut buf)
+        .map_err(|e| e.to_string())?;
+    if buf.len() as u64 > DECIDE_MAX_RESPONSE {
+        return Err("decide_post: response too large".to_string());
+    }
+    Ok(buf)
 }
 
 #[tauri::command]
@@ -1242,7 +1481,8 @@ pub fn run() {
                         .unwrap()
                 }
             };
-            let path = request.uri().path();
+            let raw_path = request.uri().path();
+            let path = raw_path.split('?').next().unwrap_or(raw_path);
             let rel_enc = path
                 .strip_prefix("/f/")
                 .unwrap_or(path.trim_start_matches('/'));
@@ -1273,10 +1513,12 @@ pub fn run() {
             watch,
             unwatch,
             fs_read,
+            fs_read_batch,
             fs_write_atomic,
             fs_trash,
             fs_append_tombstone,
             open_external,
+            open_url,
             reveal_file,
             fs_open_with,
             pick_app,

@@ -3,8 +3,9 @@
 // link-<id>.md here: frontmatter is facts (read-only), body + type are the
 // human layer. Save writes the whole note back through the atomic IPC.
 
-import type { LinkNote } from "@box/core";
+import type { CanvasEdge, LinkNote } from "@box/core";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { NODE_COLOR_PRESETS } from "./canvas/NodeView.js";
 
 // CodeMirror is ~350 kB of parse/highlight machinery the board never
 // needs until a note opens - keep it out of the main chunk.
@@ -14,6 +15,7 @@ const CmBodyEditor = lazy(() =>
 
 export interface NotePanelProps {
   note: LinkNote;
+  edge?: CanvasEdge | undefined;
   /** True when the file changed on disk while the user was mid-edit. */
   stale?: boolean;
   onSave: (next: LinkNote) => void;
@@ -21,15 +23,22 @@ export interface NotePanelProps {
   onDirtyChange?: (dirty: boolean) => void;
   /** Jump the canvas camera to an endpoint node (FR-205). */
   onJumpNode?: (nodeId: string) => void;
+  /** Update edge visuals (color, lineStyle, fromEnd/toEnd). */
+  onUpdateEdge?: (nextEdge: Partial<CanvasEdge>) => void;
+  /** Erase this edge and move its link note to the Recycle Bin (I-2). */
+  onDelete?: () => void;
 }
 
 export function NotePanel({
   note,
+  edge,
   stale,
   onSave,
   onClose,
   onDirtyChange,
   onJumpNode,
+  onUpdateEdge,
+  onDelete,
 }: NotePanelProps) {
   const [body, setBody] = useState(note.body);
   const [type, setType] = useState(
@@ -114,6 +123,115 @@ export function NotePanel({
             onChange={(e) => setType(e.target.value)}
           />
         </dd>
+        {edge && onUpdateEdge && (
+          <>
+            <dt>direction</dt>
+            <dd className="note-edge-pills">
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.fromEnd !== "arrow" && edge.toEnd !== "none"
+                    ? " active"
+                    : "")
+                }
+                title="Unidirectional (forward arrow)"
+                onClick={() =>
+                  onUpdateEdge({ fromEnd: "none", toEnd: "arrow" })
+                }
+              >
+                ➔ forward
+              </button>
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.fromEnd === "arrow" && edge.toEnd === "arrow"
+                    ? " active"
+                    : "")
+                }
+                title="Bidirectional (arrows at both ends)"
+                onClick={() =>
+                  onUpdateEdge({ fromEnd: "arrow", toEnd: "arrow" })
+                }
+              >
+                ↔ both
+              </button>
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.fromEnd === "none" && edge.toEnd === "none"
+                    ? " active"
+                    : "")
+                }
+                title="Undirected line"
+                onClick={() =>
+                  onUpdateEdge({ fromEnd: "none", toEnd: "none" })
+                }
+              >
+                — line
+              </button>
+            </dd>
+            <dt>style</dt>
+            <dd className="note-edge-pills">
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.lineStyle === undefined || edge.lineStyle === "solid"
+                    ? " active"
+                    : "")
+                }
+                onClick={() => onUpdateEdge({ lineStyle: "solid" })}
+              >
+                Solid
+              </button>
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.lineStyle === "dashed" ? " active" : "")
+                }
+                onClick={() => onUpdateEdge({ lineStyle: "dashed" })}
+              >
+                Dashed
+              </button>
+              <button
+                type="button"
+                className={
+                  "note-pill" +
+                  (edge.lineStyle === "dotted" ? " active" : "")
+                }
+                onClick={() => onUpdateEdge({ lineStyle: "dotted" })}
+              >
+                Dotted
+              </button>
+            </dd>
+            <dt>color</dt>
+            <dd className="note-edge-swatches">
+              <button
+                type="button"
+                className={"edge-swatch" + (!edge.color ? " active" : "")}
+                style={{ backgroundColor: "#5a83c4" }}
+                title="Default blue"
+                onClick={() => onUpdateEdge({ color: undefined })}
+              />
+              {Object.entries(NODE_COLOR_PRESETS).map(([k, hex]) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={
+                    "edge-swatch" + (edge.color === k ? " active" : "")
+                  }
+                  style={{ backgroundColor: hex }}
+                  title={`Color preset ${k}`}
+                  onClick={() => onUpdateEdge({ color: k })}
+                />
+              ))}
+            </dd>
+          </>
+        )}
       </dl>
       {/* FR-207: CM6 markdown editor for the body; frontmatter stays a
           structured read-only layer above, so box-edge is never editable. */}
@@ -127,6 +245,16 @@ export function NotePanel({
         </Suspense>
       </div>
       <footer className="note-panel-foot">
+        {onDelete && (
+          <button
+            type="button"
+            className="danger"
+            onClick={onDelete}
+            title="Erase edge and move link note to Recycle Bin (I-2)"
+          >
+            Delete link
+          </button>
+        )}
         <button onClick={save} disabled={!dirty}>
           Save note
         </button>

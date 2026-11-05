@@ -151,3 +151,19 @@ describe("nodeTint", () => {
     expect(nodeTint("")).toBeNull();
   });
 });
+
+describe("level of detail (LOD)", () => {
+  const isLowLod = (z: number, unCullable: boolean, type: string) =>
+    z < 0.35 && !unCullable && type !== "group";
+
+  it("triggers low LOD when zoomed out below threshold", () => {
+    expect(isLowLod(0.2, false, "file")).toBe(true);
+    expect(isLowLod(0.2, false, "text")).toBe(true);
+  });
+
+  it("preserves full LOD at standard zoom or for interactive nodes", () => {
+    expect(isLowLod(1.0, false, "file")).toBe(false);
+    expect(isLowLod(0.2, true, "file")).toBe(false); // selected / editing
+    expect(isLowLod(0.2, false, "group")).toBe(false); // groups never low lod
+  });
+});

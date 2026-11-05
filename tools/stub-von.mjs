@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // Local stub for the Von `/v1/systemone` decision endpoint (ADR-0010
 // live verify while the real daemon is offline). Returns a canned
 // link-type answer so the FR-401 pill path is exercised end-to-end.

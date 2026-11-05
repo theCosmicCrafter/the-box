@@ -26,7 +26,9 @@ export default tseslint.config(
     rules: {
       // box-core purity guard: platform imports are banned inside box-core
       // (enforced structurally by the no-platform-imports rule below).
-      "@typescript-eslint/no-explicit-any": "warn",
+      // AGENTS.md: no `any` without a comment explaining why. Zero uses
+      // today, so the gate is an error - a warning is never read in CI.
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/consistent-type-imports": [
         "error",
         { prefer: "type-imports" },

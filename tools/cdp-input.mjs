@@ -1,8 +1,14 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
 // CDP real-input driver: node tools/cdp-input.mjs '<json-script>'
 // Script = [{x,y,type:"move"|"down"|"up"|"click",button?}] dispatched through
 // Input.dispatchMouseEvent - real pointer pipeline (setPointerCapture works).
+import { readFileSync } from "node:fs";
+
 const port = process.env.CDP_PORT ?? "9223";
-const steps = JSON.parse(process.argv[2]);
+const raw = process.argv[2] === "-" || !process.argv[2]
+  ? readFileSync(0, "utf8")
+  : process.argv[2];
+const steps = JSON.parse(raw);
 const list = await fetch(`http://localhost:${port}/json/list`).then((r) =>
   r.json(),
 );

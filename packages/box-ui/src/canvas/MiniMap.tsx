@@ -76,8 +76,17 @@ export function MiniMap(props: MiniMapProps) {
       onPointerMove={(e) => {
         if (!dragging.current) return;
         toWorldCenter(e.clientX, e.clientY);
+        e.stopPropagation();
+        e.preventDefault();
       }}
-      onPointerUp={() => (dragging.current = false)}
+      onPointerUp={(e) => {
+        dragging.current = false;
+        try {
+          (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+        } catch {
+          // pointer capture already lost
+        }
+      }}
       onPointerCancel={() => (dragging.current = false)}
     >
       <svg width={W} height={H}>

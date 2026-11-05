@@ -32,7 +32,14 @@ export interface OplogFile {
   entries: OplogDelta[];
 }
 
-const MAX_ENTRIES = 100;
+// Persisted undo depth matches the renderer's in-memory cap (App.tsx
+// undoStack > 200 -> shift) so restart does not silently halve history.
+const MAX_ENTRIES = 200;
+// decodeOplog rejects logs far beyond what trimOplog can ever write -
+// .box/ is app-managed but the workspace is untrusted input (SECURITY-THREATS
+// §1), so a hostile or corrupt log must fail closed instead of exhausting
+// memory at board open.
+const MAX_DECODE_ENTRIES = MAX_ENTRIES * 4;
 
 function byId<T extends { id: string }>(list: T[]): Map<string, T> {
   const m = new Map<string, T>();
@@ -49,17 +56,20 @@ export function diffSnapshots(
   const edges: Record<string, CanvasEdge | null> = {};
   const pn = byId(prev.nodes);
   const pe = byId(prev.edges);
+  const nn = byId(next.nodes);
+  const ne = byId(next.edges);
   for (const n of next.nodes) {
     if (pn.get(n.id) !== n) nodes[n.id] = n;
   }
   for (const e of next.edges) {
     if (pe.get(e.id) !== e) edges[e.id] = e;
   }
+  // Removal scan is set-membership, not a nested some() - O(N) not O(N^2).
   for (const id of pn.keys()) {
-    if (!next.nodes.some((n) => n.id === id)) nodes[id] = null;
+    if (!nn.has(id)) nodes[id] = null;
   }
   for (const id of pe.keys()) {
-    if (!next.edges.some((e) => e.id === id)) edges[id] = null;
+    if (!ne.has(id)) edges[id] = null;
   }
   return { nodes, edges };
 }
@@ -114,6 +124,7 @@ export function decodeOplog(
   if (raw === null || typeof raw !== "object") return null;
   const f = raw as Partial<OplogFile>;
   if (f.v !== 1 || f.board !== board || !Array.isArray(f.entries)) return null;
+  if (f.entries.length > MAX_DECODE_ENTRIES) return null;
   const base = f.base;
   if (
     base === null ||

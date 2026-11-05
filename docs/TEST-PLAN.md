@@ -30,7 +30,7 @@ driver `tools/cdp-eval.mjs`); assertions read real store state.
 | `invariant-I1-draw-edge`   | edge → exactly one note, matching `box-edge`/`from`/`to` | `createEdge` → assert board edge + `link-<id>.md` exist, frontmatter matches                                                        |
 | `invariant-I2-erase-edge`  | erase → note recoverably deleted                         | `deleteEdge` → board clean, note trashed (mock IRecycler records call), tombstone appended                                          |
 | `invariant-I3-delete-note` | note deleted on disk → edge removed on refresh           | delete file directly → `classifyEvents`+`reconcile` → edge gone                                                                     |
-| `invariant-I4-reconstruct` | full rebuild from files with index deleted               | build fixture by file ops, wipe `index.db`, open → assert identical model                                                           |
+| `invariant-I4-reconstruct` | full rebuild from files with index/known.json deleted    | build fixture by file ops, wipe `.box/known.json` (and caches), open → assert identical model       |
 | `invariant-I5-rename`      | rename → board + denorms updated, ids stable             | rename file → assert `file:` fields and `*-file` updated, node/edge ids unchanged                                                   |
 | `invariant-I6-multiboard`  | file on 2 boards consistent                              | node on boards A+B → edit propagates                                                                                                |
 | `invariant-I7-broken`      | missing endpoint → broken render, note preserved         | delete endpoint file → edge marked broken, note intact, problem item                                                                |
@@ -173,6 +173,24 @@ Esc cancels), per-row "place at viewport center", deterministic "place all"
 grid via `gridPlaceRect`. The FileTree stays unfiltered alongside it.
 
 Live-verified 2026-10-13 (real CDP input, chaos workspace):
+
+## 9. Quality-of-life surfaces (post-audit additions)
+
+| surface                                   | coverage                                              | status        |
+| ----------------------------------------- | ----------------------------------------------------- | ------------- |
+| Status bar (counts + zoom readout)        | live CDP: renders "0 nodes 0 edges 25 files", 100%    | live          |
+| Status-bar zoom controls (-/%/+/Fit)      | live CDP: + stepped 100→125%, - returned to 100%      | live          |
+| Tab middle-click close + Ctrl+W           | live CDP: Ctrl+W closed active board; middle-click wired (inactive tabs no-op, same as ×) | live |
+| FileTree context menu (new/open/reveal/…) | live CDP: contextmenu on file row opened ops menu     | live          |
+| `.box/tmp` + `.box/thumbs` GC             | `gc_box_dirs` adversarial tests (stale/fresh/cap)     | unit          |
+| Excerpt-loader + spatial-audio perf fixes | keyed effects/refs; no behavior change                | unit          |
+
+Live-verified 2026-10-25 via `tauri dev` + CDP on the dev workspace:
+status bar counts, zoom step both directions, tree context menu,
+Ctrl+W board close. Fit button shares the zoomRequest path (Shift+1
+already live-verified earlier). Middle-click on a non-active tab is a
+deliberate no-op - tabs enumerate all `.canvas` files, only the active
+board can close (same contract as the × button).
 ink draw writes `untitled-1.md.ink.svg` (`box-format: box.ink/1`,
 pressure-varying polygon, node gains `box-ink`); ink erase removes strokes
 and trashes the emptied sidecar (Recoverable by design, `box-ink` key

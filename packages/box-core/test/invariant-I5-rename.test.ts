@@ -75,15 +75,15 @@ describe("invariant-I5-rename", () => {
     const deltas = classifyFileSet(
       {
         files: new Map([
-          ["concept.png", { size: 1024, mtime: 500, sha256: "abc" }],
-          ["concept.png.ink.svg", { size: 256, mtime: 500, sha256: "def" }],
-          ["lore.md", { size: 128, mtime: 500, sha256: "ghi" }],
+          ["concept.png", { size: 1024, mtime: 500 }],
+          ["concept.png.ink.svg", { size: 256, mtime: 500 }],
+          ["lore.md", { size: 128, mtime: 500 }],
         ]),
       },
       [
-        { path: "armor.png", size: 1024, mtime: 500, sha256: "abc" },
-        { path: "armor.png.ink.svg", size: 256, mtime: 500, sha256: "def" },
-        { path: "lore.md", size: 128, mtime: 500, sha256: "ghi" },
+        { path: "armor.png", size: 1024, mtime: 500 },
+        { path: "armor.png.ink.svg", size: 256, mtime: 500 },
+        { path: "lore.md", size: 128, mtime: 500 },
       ],
     );
 

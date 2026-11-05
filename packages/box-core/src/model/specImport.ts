@@ -31,6 +31,28 @@ export interface SpecImport {
 
 export type SpecImportResult = SpecImport | { error: string };
 
+/**
+ * True once a board file carries our format marker. A `.canvas` without it
+ * is a foreign spec file that has not been normalized yet (ADR-0009).
+ */
+export function hasBoxFormatMarker(raw: string): boolean {
+  return raw.includes('"box-format"');
+}
+
+/**
+ * Which workspace files the sync scan must parse as boards. `.box.canvas`
+ * is always ours; any other `.canvas` is a board only after ADR-0009
+ * normalization (marker present). Un-normalized foreign files are left
+ * alone - parsing them would flood problems - but a normalized one MUST be
+ * scanned: its link notes live at the workspace root, and a scan that
+ * omits their board makes reconcile adopt them (R-C) onto an unrelated
+ * board with dangling endpoints.
+ */
+export function isReconcilableBoard(path: string, raw: string): boolean {
+  if (path.endsWith(".box.canvas")) return true;
+  return path.endsWith(".canvas") && hasBoxFormatMarker(raw);
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -43,6 +65,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 export function importSpecCanvas(
   raw: string,
   boardPath: string,
+  opts: { existingNotePaths?: ReadonlySet<string> } = {},
 ): SpecImportResult {
   let doc: unknown;
   try {
@@ -91,7 +114,10 @@ export function importSpecCanvas(
     return next;
   });
 
-  // Arrows are notes: every imported edge gets a real link-<id>.md.
+  // Arrows are notes: every imported edge gets a real link-<id>.md - except
+  // paths that already exist on disk. A foreign canvas can carry edge ids
+  // that collide with live notes; overwriting them would destroy user
+  // content, so existing files win and reconcile sorts out the mismatch.
   const fileOf = new Map<string, string>();
   for (const n of nodes) {
     if (isObj(n) && n["type"] === "file" && typeof n["file"] === "string") {
@@ -119,6 +145,7 @@ export function importSpecCanvas(
     if (ff !== undefined) fm["from-file"] = ff;
     if (tf !== undefined) fm["to-file"] = tf;
     if (typeof e["label"] === "string") fm["type"] = e["label"];
+    if (opts.existingNotePaths?.has(linkNoteName(e["id"]))) continue;
     const content = serializeLinkNote({
       path: linkNoteName(e["id"]),
       frontmatter: fm,

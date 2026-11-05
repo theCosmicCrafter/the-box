@@ -21,6 +21,7 @@ import { BOARD_FORMAT } from "./types.js";
 const NODE_TYPES = new Set(["text", "file", "link", "group"]);
 const SIDES = new Set(["top", "right", "bottom", "left"]);
 const ENDS = new Set(["none", "arrow"]);
+const LINE_STYLES = new Set(["solid", "dashed", "dotted"]);
 const MAX_NODES = 100_000;
 const MAX_COORD = 1e7;
 
@@ -199,6 +200,13 @@ function edgeProblems(
         detail: `${at}.${f} invalid`,
       });
     }
+  }
+  if (e["lineStyle"] !== undefined && !LINE_STYLES.has(e["lineStyle"] as string)) {
+    problems.push({
+      kind: "malformed-board",
+      path,
+      detail: `${at}.lineStyle invalid`,
+    });
   }
   for (const f of ["fromNode", "toNode"] as const) {
     const v = e[f];

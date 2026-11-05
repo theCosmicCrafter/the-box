@@ -136,4 +136,45 @@ describe("oplog - ADR-0007 v2 snapshot deltas", () => {
     expect(ok.path).toContain(".box/oplog-");
     expect(JSON.parse(ok.json).v).toBe(1);
   });
+
+  it("diffSnapshots stays correct at bulk scale (linear removal scan)", () => {
+    const prevNodes = Array.from({ length: 2000 }, (_, i) => node(`n-${i}`));
+    const prev: BoardSnapshot = { nodes: prevNodes, edges: [] };
+    // next keeps half, moves one, drops the rest
+    const nextNodes = prevNodes
+      .filter((_, i) => i % 2 === 0)
+      .map((n, i) => (i === 0 ? { ...n, x: 999 } : n));
+    const d = diffSnapshots(prev, { nodes: nextNodes, edges: [] });
+    // 1000 removals (odd ids) + 1 move (n-0); kept evens unchanged
+    expect(Object.keys(d.nodes)).toHaveLength(1001);
+    expect(d.nodes["n-0"]).toMatchObject({ x: 999 });
+    expect(d.nodes["n-1"]).toBeNull();
+    expect(d.nodes["n-1999"]).toBeNull();
+    // kept + unchanged evens are absent from the delta entirely
+    expect(d.nodes["n-1998"]).toBeUndefined();
+  });
+
+  it("decodeOplog rejects oversized entry logs (untrusted .box input)", () => {
+    const hostile = {
+      v: 1,
+      board: "main.box.canvas",
+      base: { nodes: [], edges: [] },
+      entries: Array.from({ length: 100_000 }, () => ({
+        nodes: {},
+        edges: {},
+      })),
+    };
+    expect(decodeOplog(hostile, "main.box.canvas")).toBeNull();
+    // boundary: a log trimOplog could legitimately write still decodes
+    const ok = {
+      v: 1,
+      board: "main.box.canvas",
+      base: { nodes: [], edges: [] },
+      entries: Array.from({ length: 800 }, () => ({
+        nodes: {},
+        edges: {},
+      })),
+    };
+    expect(decodeOplog(ok, "main.box.canvas")).toHaveLength(801);
+  });
 });

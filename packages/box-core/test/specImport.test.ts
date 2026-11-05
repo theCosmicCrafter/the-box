@@ -4,10 +4,15 @@
 // spec-readable.
 
 import { describe, expect, it } from "vitest";
-import { importSpecCanvas } from "../src/model/specImport.js";
+import {
+  hasBoxFormatMarker,
+  importSpecCanvas,
+  isReconcilableBoard,
+} from "../src/model/specImport.js";
 import { parseBoard } from "../src/model/board.js";
 import { parseLinkNote } from "../src/model/linkNote.js";
 import { isEdgeId, isNodeId } from "../src/model/ids.js";
+import { reconcile } from "../src/sync/reconcile.js";
 
 const FOREIGN = {
   nodes: [
@@ -92,6 +97,40 @@ describe("importSpecCanvas (ADR-0009)", () => {
     expect(p.problems).toEqual([]);
   });
 
+  it("skips note writes for paths that already exist on disk", () => {
+    // A foreign canvas can carry a VALID edge id that collides with a
+    // live link-<id>.md - the existing note must win over the stub.
+    const validIds = {
+      nodes: [
+        { id: "n-aaa111bbb222", type: "file", x: 0, y: 0, width: 1, height: 1, file: "a.png" },
+        { id: "n-ccc333ddd444", type: "file", x: 2, y: 0, width: 1, height: 1, file: "b.png" },
+      ],
+      edges: [
+        {
+          id: "7f3a9c2b1d4e5f6a",
+          fromNode: "n-aaa111bbb222",
+          toNode: "n-ccc333ddd444",
+        },
+      ],
+    };
+    const colliding = new Set(["link-7f3a9c2b1d4e5f6a.md"]);
+    const r = importSpecCanvas(JSON.stringify(validIds), "w/x.canvas", {
+      existingNotePaths: colliding,
+    });
+    expect("error" in r).toBe(false);
+    if ("error" in r) return;
+    expect(r.notes).toHaveLength(0);
+    expect(r.remappedEdges).toBe(0); // valid id kept, only the note skipped
+    // The edge still carries its box-link - reconcile handles the note side.
+    const p = parseBoard(r.boardJson, "w/x.canvas");
+    expect(p.value!.edges[0]!["box-link"]).toBe("link-7f3a9c2b1d4e5f6a.md");
+    // Without the guard the stub is emitted as before.
+    const r2 = importSpecCanvas(JSON.stringify(validIds), "w/x.canvas");
+    expect("error" in r2).toBe(false);
+    if ("error" in r2) return;
+    expect(r2.notes).toHaveLength(1);
+  });
+
   it("rejects non-canvas JSON without touching the file", () => {
     expect("error" in importSpecCanvas("not json", "x.canvas")).toBe(true);
     expect("error" in importSpecCanvas("[1,2]", "x.canvas")).toBe(true);
@@ -118,5 +157,52 @@ describe("importSpecCanvas (ADR-0009)", () => {
     expect(r.remappedNodes).toBe(0);
     const p = parseBoard(r.boardJson, "x.canvas");
     expect(p.value!.nodes[0]!.id).toBe("n-abcdef01");
+  });
+});
+
+describe("normalized foreign boards take part in reconcile (ADR-0009)", () => {
+  it("classifies which .canvas files the sync scan must parse", () => {
+    const normalized = importSpecCanvas(JSON.stringify(FOREIGN), "a.canvas");
+    if ("error" in normalized) throw new Error(normalized.error);
+    expect(hasBoxFormatMarker(normalized.boardJson)).toBe(true);
+    expect(hasBoxFormatMarker(JSON.stringify(FOREIGN))).toBe(false);
+    // native boards always; normalized foreign ones; never un-normalized ones
+    expect(isReconcilableBoard(".box/main.box.canvas", "{}")).toBe(true);
+    expect(isReconcilableBoard("w/a.canvas", normalized.boardJson)).toBe(true);
+    expect(isReconcilableBoard("w/a.canvas", JSON.stringify(FOREIGN))).toBe(
+      false,
+    );
+    expect(isReconcilableBoard("notes.md", normalized.boardJson)).toBe(false);
+  });
+
+  it("imported link notes are NOT adopted onto an unrelated board when their own board is scanned", () => {
+    const imp = importSpecCanvas(JSON.stringify(FOREIGN), "world.canvas");
+    if ("error" in imp) throw new Error(imp.error);
+    const foreign = parseBoard(imp.boardJson, "world.canvas");
+    const main = parseBoard(
+      '{"nodes":[],"edges":[],"box-format":"box.canvas/1"}',
+      ".box/main.box.canvas",
+    );
+    const notePath = imp.notes[0]!.path;
+    const note = parseLinkNote(imp.notes[0]!.content, notePath);
+    const scan = {
+      boards: new Map([
+        [".box/main.box.canvas", main],
+        ["world.canvas", foreign],
+      ]),
+      notes: new Map([[notePath, note]]),
+      files: new Set([
+        ".box/main.box.canvas",
+        "world.canvas",
+        notePath,
+        "assets/hero.png",
+      ]),
+      tombstones: new Set<string>(),
+    };
+    const r = reconcile(scan);
+    const touchedMain = r.plan.steps.some(
+      (s) => s.op === "write-atomic" && s.path === ".box/main.box.canvas",
+    );
+    expect(touchedMain).toBe(false);
   });
 });

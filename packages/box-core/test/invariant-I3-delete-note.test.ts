@@ -5,6 +5,11 @@
 
 import { describe, expect, it } from "vitest";
 import { parseBoard } from "../src/model/board.js";
+import {
+  createSyncState,
+  parseSyncState,
+  serializeSyncState,
+} from "../src/model/syncState.js";
 import type { LinkNote } from "../src/model/types.js";
 import { reconcile, type WorkspaceScan } from "../src/sync/reconcile.js";
 
@@ -136,5 +141,32 @@ describe("invariant-I3-delete-note", () => {
     expect(written.edges.some((e: { id: string }) => e.id === EDGE_ID)).toBe(
       true,
     );
+  });
+
+  it("closed-app note deletion: sync state remembers note, edge is removed on restart", () => {
+    const state = createSyncState(
+      [EDGE_ID],
+      new Map([["a.png", { size: 100 }]]),
+    );
+    const json = serializeSyncState(state);
+
+    const loaded = parseSyncState(json);
+    expect(loaded).not.toBeNull();
+
+    const s = scan({
+      boards: new Map([[BP, parseBoard(boardJson(true), BP)]]),
+      knownNotes: new Set(loaded!.knownNotes),
+    });
+    const r = reconcile(s);
+
+    const boardWrite = r.plan.steps.find(
+      (s2) => s2.op === "write-atomic" && s2.path === BP,
+    );
+    expect(boardWrite).toBeDefined();
+    const written = JSON.parse((boardWrite as { content: string }).content);
+    expect(written.edges).toHaveLength(0);
+    expect(
+      r.plan.steps.some((s2) => s2.op === "write-atomic" && s2.path === NOTE),
+    ).toBe(false);
   });
 });

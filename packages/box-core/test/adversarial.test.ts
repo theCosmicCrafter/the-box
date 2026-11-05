@@ -2,7 +2,7 @@
 // Adversarial suite - break-it-first tests. Every case is a documented
 // attack shape or a pathological-but-legal file state, never a happy path.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Board, LinkNote, ParseResult } from "../src/index.js";
 import { parseBoard, serializeBoard } from "../src/model/board.js";
 import { edgeIdFromNoteName, linkNoteName } from "../src/model/ids.js";
@@ -10,7 +10,7 @@ import { parseInkSvg } from "../src/model/ink.js";
 import { parseLinkNote, serializeLinkNote } from "../src/model/linkNote.js";
 import { isPathRel, resolveInside } from "../src/model/paths.js";
 import { reconcile, type WorkspaceScan } from "../src/sync/reconcile.js";
-import { classifyFileSet, routePath } from "../src/watch/classify.js";
+import { classifyFileSet } from "../src/watch/classify.js";
 
 const VALID_BOARD = {
   "box-format": "box.canvas/1",
@@ -350,15 +350,17 @@ describe("classifyFileSet adversarial", () => {
     expect(d).toEqual([{ kind: "renamed", path: "a", to: "b" }]);
   });
 
-  it("sha256 collision-resistance: different sha, same size+mtime = not rename", () => {
+  it("same size+mtime pairs as rename - the documented hash-less residual", () => {
+    // Content hashing was removed as dead plumbing (never populated by
+    // scan). Two different files sharing size AND mtime will mispair;
+    // ms-precision mtimes make this vanishingly rare in practice. If it
+    // shows up in dogfood, add lazy hashing behind IVault - see
+    // classify.ts. This test pins the CURRENT contract honestly.
     const d = classifyFileSet(
-      { files: new Map([["a", { size: 5, mtime: 1, sha256: "x" }]]) },
-      [{ path: "b", size: 5, mtime: 1, sha256: "y" }],
+      { files: new Map([["a", { size: 5, mtime: 1 }]]) },
+      [{ path: "b", size: 5, mtime: 1 }],
     );
-    expect(d).toEqual([
-      { kind: "deleted", path: "a" },
-      { kind: "created", path: "b" },
-    ]);
+    expect(d).toEqual([{ kind: "renamed", path: "a", to: "b" }]);
   });
 
   it("empty-to-empty and full-wipe are stable", () => {
@@ -374,16 +376,6 @@ describe("classifyFileSet adversarial", () => {
     );
     expect(wipe).toHaveLength(2);
     expect(wipe.every((d) => d.kind === "deleted")).toBe(true);
-  });
-
-  it("routePath never misroutes", () => {
-    expect(routePath(".box/main.box.canvas")).toBe("board");
-    expect(routePath(".box/tombstones.json")).toBe("tombstone");
-    expect(routePath("link-7f3a9c2b1d4e5f6a.md")).toBe("link-note");
-    expect(routePath("notes/link-7f3a9c2b1d4e5f6a.md")).toBe("link-note"); // nested still routes
-    expect(routePath("a.ink.svg")).toBe("ink");
-    expect(routePath("x.png")).toBe("object");
-    expect(routePath("link-note.md")).toBe("object"); // decoy name
   });
 });
 
@@ -469,24 +461,23 @@ describe("reconcile adversarial", () => {
     expect(r.plan.steps.filter((s) => s.op === "trash")).toHaveLength(0);
   });
 
-  it("note with filename/box-edge mismatch gets renamed back, old trashed", () => {
+  it("note with filename/box-edge mismatch gets repaired in-place (filename is identity)", () => {
     const scan = emptyScan();
     const note = mkNote("2222222222222222");
-    // file on disk is link-WRONG.md but box-edge says 2222...
+    // file on disk is link-3333333333333333.md but box-edge says 2222...
     scan.notes.set("link-3333333333333333.md", ok(note));
     scan.boards.set(".box/main.box.canvas", ok(VALID_BOARD as Board));
     scan.files = new Set(["a.png", "b.png", "link-3333333333333333.md"]);
     const r = reconcile(scan);
     expect(
       r.plan.steps.some(
-        (s) => s.op === "write-atomic" && s.path === "link-2222222222222222.md",
+        (s) =>
+          s.op === "write-atomic" &&
+          s.path === "link-3333333333333333.md" &&
+          s.content.includes("3333333333333333"),
       ),
     ).toBe(true);
-    expect(
-      r.plan.steps.some(
-        (s) => s.op === "trash" && s.path === "link-3333333333333333.md",
-      ),
-    ).toBe(true);
+    expect(r.plan.steps.filter((s) => s.op === "trash")).toHaveLength(0);
   });
 
   it("edge whose note exists with different endpoints: note wins (R-B)", () => {
@@ -516,10 +507,18 @@ describe("reconcile adversarial", () => {
     const scan = emptyScan();
     scan.boards.set(".box/main.box.canvas", ok(VALID_BOARD as Board));
     scan.files = new Set(["a.png", "b.png"]);
-    const a = reconcile(scan);
-    const b = reconcile(scan);
-    expect(a.plan).toEqual(b.plan);
-    expect(a.problems).toEqual(b.problems);
+    // Stub notes stamp `created` from the wall clock - freeze time so the
+    // two runs cannot straddle a millisecond boundary (flaky otherwise).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+    try {
+      const a = reconcile(scan);
+      const b = reconcile(scan);
+      expect(a.plan).toEqual(b.plan);
+      expect(a.problems).toEqual(b.problems);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -621,5 +620,29 @@ describe("hostile content shapes", () => {
     expect(Date.now() - t0).toBeLessThan(3000);
     const re = parseLinkNote(out, "link-7f3a9c2b1d4e5f6a.md");
     expect(re.value?.body).toHaveLength(2_000_000);
+  });
+
+  it("survives complex Unicode, emoji, RTL, zero-width chars across serialization", () => {
+    const note: LinkNote = {
+      path: "link-7f3a9c2b1d4e5f6a.md",
+      frontmatter: {
+        "box-edge": "7f3a9c2b1d4e5f6a",
+        "box-format": "box.link/1",
+        from: "n-aaa111",
+        to: "n-bbb222",
+        board: "main.box.canvas",
+        created: "2026-01-01T00:00:00.000Z",
+        "emoji-key-🚀": "🎨 👩‍💻 📦",
+        "arabic-text": "مرحبا بالعالم",
+        "hebrew-text": "שלום עולם",
+        "cjk-text": "你好世界 / こんにちは / 안녕하세요",
+      },
+      body: "Unicode body with zero-width\u200Bjoiners and symbols: ⚡🔥✨\nمرحبا\nשלום",
+    };
+    const out = serializeLinkNote(note);
+    const parsed = parseLinkNote(out, note.path);
+    expect(parsed.problems).toHaveLength(0);
+    expect(parsed.value?.frontmatter["emoji-key-🚀"]).toBe("🎨 👩‍💻 📦");
+    expect(parsed.value?.body).toContain("⚡🔥✨");
   });
 });

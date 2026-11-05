@@ -18,8 +18,9 @@ my-world/                        the workspace: an ordinary folder, user-owned
 ├── .box/                        the only folder the app owns
 │   ├── <name>.box.canvas        board file(s), one per board (JSON Canvas superset)
 │                               (foreign `*.canvas` anywhere ingests in place - ADR-0009)
-│   ├── tombstones.json          pending-delete ledger (see 4.3)
-│   ├── index.db                 DERIVED CACHE (node:sqlite). Safe to delete.
+│   ├── tombstones.json          pending-delete ledger (see 4.3; ADR-0011)
+│   ├── known.json               DERIVED CACHE (sync state & known notes; ADR-0011). Safe to delete.
+│   ├── embeddings.json          DERIVED CACHE (local vector index; ADR-0012). Safe to delete.
 │   └── settings.json            per-type open-with prefs, UI view state (non-truth)
 ├── concept.png                  user file: an object
 ├── concept.png.ink.svg          ink sidecar for concept.png
@@ -33,7 +34,7 @@ Rules:
 - A file with no placement record on any board is **in The Box** (holding
   area). Nothing is hidden by import; absence of placement is the only
   distinction.
-- `.box/` contents are app-managed. `index.db` and `settings.json` are
+- `.box/` contents are app-managed. `known.json` and `settings.json` are
   disposable. `tombstones.json` is small but load-bearing (4.3).
 - Everything outside `.box/` is user territory. Folder structure, names, and
   organization are the user's; the app only writes placement records,
@@ -143,6 +144,7 @@ node with no `box-placement` and no spec coords on any board is unplaced
 | `fromSide`, `toSide` | string      | no       | -       | `top\|right\|bottom\|left`       |                                      |
 | `fromEnd`            | string      | no       | `none`  | `none\|arrow`                    | spec default `none`                  |
 | `toEnd`              | string      | no       | `arrow` | `none\|arrow`                    | spec default `arrow`                 |
+| `lineStyle`          | string      | no       | `solid` | `solid\|dashed\|dotted`          | ADR-0013 visual edge style           |
 | `color`              | canvasColor | no       | -       |                                  |                                      |
 | `label`              | string      | no       | -       | short inline label               | full documentation lives in the note |
 | `box-link`           | string      | yes      | -       | `^link-[0-9a-f]{16}\.md$`        | the note file backing this edge      |
@@ -333,7 +335,7 @@ Each invariant is a law of the product. Each has a mandatory test in
 | I-1 | Draw an edge → exactly one `link-<edgeid>.md` exists with matching `box-edge`, `from`, `to`.                  |
 | I-2 | Erase an edge → its link note is deleted **recoverably** (Recycle Bin) and a tombstone is recorded.           |
 | I-3 | Delete a `link-*.md` (any path: app, OS, other editor) → the edge is removed on next reconcile.               |
-| I-4 | Reconstruct-from-files: with `index.db` deleted, open workspace → boards, edges, ink, placements identical.   |
+| I-4 | Reconstruct-from-files: with `.box/known.json` (and caches) deleted, open workspace → boards, edges, ink, placements identical.   |
 | I-5 | Rename a file → board `file` fields and link-note `*-file` fields update; node/edge ids stable.               |
 | I-6 | Two boards may share a file node; the link note is workspace-global (ADR-0003).                               |
 | I-7 | Missing endpoint file → edge renders broken, note preserved, never auto-deleted.                              |

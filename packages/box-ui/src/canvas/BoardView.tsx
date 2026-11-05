@@ -8,7 +8,12 @@
 import type { Board, CanvasNode, InkStroke, Side } from "@box/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Camera } from "./camera.js";
-import { DEFAULT_CAMERA, screenToWorld, zoomToFit } from "./camera.js";
+import {
+  DEFAULT_CAMERA,
+  screenToWorld,
+  zoomAt,
+  zoomToFit,
+} from "./camera.js";
 import { nodeVisible, worldViewport } from "./cull.js";
 import type { DraftEdge } from "./EdgeLayer.js";
 import { EdgeHandles, EdgeLayer, anchor, edgeMidpoint } from "./EdgeLayer.js";
@@ -22,6 +27,8 @@ export interface BoardViewProps {
   board: Board;
   brokenNodes?: Set<string> | undefined;
   brokenEdges?: Set<string> | undefined;
+  /** Nodes that do not match the active filter query/kind (dimmed in view). */
+  dimmedNodes?: Set<string> | undefined;
   /** File path -> short text excerpt for document nodes. */
   fileTexts?: Map<string, string> | undefined;
   /** File path -> byte size for typed tiles. */
@@ -61,6 +68,13 @@ export interface BoardViewProps {
   focusNode?: { id: string; nonce: number } | null | undefined;
   /** Imperative zoom-to-fit request: camera fits all nodes (Shift+1). */
   fitAllRequest?: { nonce: number } | undefined;
+  /** Imperative zoom step from chrome (status bar): in/out about the
+   * viewport center, reset returns to 100% (Shift+0 semantics). */
+  zoomRequest?:
+    | { action: "in" | "out" | "reset"; nonce: number }
+    | undefined;
+  /** Selected edge id (or null when cleared). */
+  selectedEdge?: string | null | undefined;
   onDeleteNode?: (id: string) => void;
   /** Batch placement-removal (one board write); falls back to onDeleteNode. */
   onDeleteNodes?: (ids: string[]) => void;
@@ -100,8 +114,15 @@ export interface BoardViewProps {
   onRevealFile?: (file: string) => void;
   /** Right-click on empty canvas (world + client coords for menus). */
   onCanvasMenu?: (wx: number, wy: number, cx: number, cy: number) => void;
-  /** Right-click on a node (client coords for menus). */
-  onNodeMenu?: (node: CanvasNode, cx: number, cy: number) => void;
+  /** Right-click on a node (client coords for menus, and currently selected IDs). */
+  onNodeMenu?: (
+    node: CanvasNode,
+    cx: number,
+    cy: number,
+    selectedIds?: string[],
+  ) => void;
+  /** Selection changes (node ids). */
+  onSelectionChange?: (selectedIds: string[]) => void;
   /** Camera stream - the platform needs live camera for OS-drop->world. */
   onCameraChange?: (cam: Camera) => void;
   /** External ref to the viewport element (for drop coord conversion). */
@@ -212,6 +233,29 @@ export function BoardView(props: BoardViewProps) {
     );
   }, [props.fitAllRequest?.nonce]);
 
+  // Zoom step request (status bar buttons): same center-anchored math
+  // as wheel zoom / Shift+0 reset.
+  useEffect(() => {
+    const req = props.zoomRequest;
+    if (!req) return;
+    const el = vpRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.width / 2;
+    const cy = r.height / 2;
+    setCam((c) => {
+      if (req.action === "reset") {
+        return {
+          z: 1,
+          x: c.x + cx * (1 / c.z - 1),
+          y: c.y + cy * (1 / c.z - 1),
+        };
+      }
+      return zoomAt(c, cx, cy, req.action === "in" ? 1.25 : 0.8);
+    });
+    // nonce-keyed like fitAllRequest: the action is read once per request.
+  }, [props.zoomRequest?.nonce]);
+
   // Viewport size for culling - ResizeObserver so panel toggles re-measure.
   const [vpSize, setVpSize] = useState<{ w: number; h: number } | null>(null);
   useEffect(() => {
@@ -227,7 +271,30 @@ export function BoardView(props: BoardViewProps) {
     return () => ro.disconnect();
   }, []);
   const [sel, setSel] = useState<Set<string>>(new Set());
-  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(
+    props.selectedEdge ?? null,
+  );
+
+  useEffect(() => {
+    if (props.selectedEdge !== undefined) {
+      setSelectedEdge(props.selectedEdge);
+    }
+  }, [props.selectedEdge]);
+
+  useEffect(() => {
+    props.onSelectionChange?.([...sel]);
+  }, [sel, props.onSelectionChange]);
+
+  const dimmedEdges = useMemo(() => {
+    if (!props.dimmedNodes || props.dimmedNodes.size === 0) return undefined;
+    const dimmed = new Set<string>();
+    for (const e of props.board.edges) {
+      if (props.dimmedNodes.has(e.fromNode) || props.dimmedNodes.has(e.toNode)) {
+        dimmed.add(e.id);
+      }
+    }
+    return dimmed;
+  }, [props.dimmedNodes, props.board.edges]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [retarget, setRetarget] = useState<Retarget | null>(null);
   const [inkDraft, setInkDraft] = useState<{
@@ -390,8 +457,14 @@ export function BoardView(props: BoardViewProps) {
       onInspect: (id: string) => propsRef.current.onInspectNode?.(id),
       onOpenExternal: (rel: string) => propsRef.current.onOpenFile?.(rel),
       onReveal: (rel: string) => propsRef.current.onRevealFile?.(rel),
-      onContextMenu: (n: CanvasNode, cx: number, cy: number) =>
-        propsRef.current.onNodeMenu?.(n, cx, cy),
+      onContextMenu: (n: CanvasNode, cx: number, cy: number) => {
+        let activeSel = selRef.current;
+        if (!activeSel.has(n.id)) {
+          activeSel = new Set([n.id]);
+          setSel(activeSel);
+        }
+        propsRef.current.onNodeMenu?.(n, cx, cy, [...activeSel]);
+      },
       onDraftStart: (nodeId: string, side: Side) => {
         const n = nodeById(nodeId);
         if (!n) return;
@@ -758,6 +831,7 @@ export function BoardView(props: BoardViewProps) {
         board={props.board}
         brokenEdges={brokenEdges}
         selectedId={selectedEdge}
+        dimmedEdges={dimmedEdges}
         viewRect={view ?? undefined}
         zoom={cam.z}
         onSelect={(id) => {
@@ -780,7 +854,13 @@ export function BoardView(props: BoardViewProps) {
             culled={
               view !== null && !unCullable.has(n.id) && !nodeVisible(n, view)
             }
+            lod={
+              cam.z < 0.35 && !unCullable.has(n.id) && n.type !== "group"
+                ? "low"
+                : "full"
+            }
             selected={sel.has(n.id)}
+            dimmed={props.dimmedNodes?.has(n.id)}
             broken={brokenNodes.has(n.id)}
             dropTarget={draft?.overId === n.id}
             resolveMedia={props.resolveMedia}

@@ -100,6 +100,9 @@ const board = {
       fromNode: "n-aaa111",
       toNode: "n-bbb222",
       toEnd: "arrow",
+      // FR-204: note `type` denormalizes to the edge label, so a clean
+      // fixture must already carry it or the first reconcile pass writes.
+      label: "inspired-by",
       "box-link": `link-${EDGE}.md`,
     },
   ],
