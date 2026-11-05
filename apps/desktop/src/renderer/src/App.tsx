@@ -72,6 +72,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
 import { buildCanvasMenu, buildNodeMenu, buildTreeMenu, type MenuDeps } from "./menus.js";
+import { RelatedNotesDialog } from "./RelatedNotesDialog.js";
 import { useFileExcerpts } from "./useFileExcerpts.js";
 import { useInkOverlay } from "./useInkOverlay.js";
 import { useUndoStack } from "./useUndoStack.js";
@@ -1942,85 +1943,20 @@ export function App() {
             />
           )}
           {relatedDialog !== null && (
-            <div className="related-notes-dialog">
-              <div className="related-notes-header">
-                <span className="related-notes-title">
-                  <Icon name="search" size={16} />
-                  Related to{" "}
-                  {relatedDialog.sourceNode.type === "file"
-                    ? baseName(relatedDialog.sourceNode.file)
-                    : relatedDialog.sourceNode.id}
-                </span>
-                <button
-                  type="button"
-                  className="related-notes-close"
-                  onClick={() => setRelatedDialog(null)}
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="related-notes-list">
-                {relatedDialog.results.length === 0 ? (
-                  <div
-                    style={{
-                      color: "#8c97aa",
-                      fontSize: "12px",
-                      padding: "12px",
-                    }}
-                  >
-                    No strongly related notes found in this workspace.
-                  </div>
-                ) : (
-                  relatedDialog.results.map((r) => (
-                    <div key={r.id} className="related-note-item">
-                      <div className="related-note-info">
-                        <span className="related-note-name">{r.name}</span>
-                        {r.excerpt && (
-                          <span className="related-note-excerpt">
-                            {r.excerpt}
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                        }}
-                      >
-                        <span className="related-note-score">{r.score}%</span>
-                        <button
-                          type="button"
-                          className="btn-tiny"
-                          title="Center camera on note"
-                          onClick={() => {
-                            setFocusNode({ id: r.id, nonce: Date.now() });
-                          }}
-                        >
-                          Jump
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-tiny"
-                          title="Connect with arrow"
-                          onClick={() => {
-                            void createEdge(
-                              relatedDialog.sourceNode.id,
-                              r.id,
-                              "right",
-                              "left",
-                            );
-                            setRelatedDialog(null);
-                          }}
-                        >
-                          Link
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+            <RelatedNotesDialog
+              dialog={relatedDialog}
+              onClose={() => setRelatedDialog(null)}
+              onJump={(id) => setFocusNode({ id, nonce: Date.now() })}
+              onLink={(targetId) => {
+                void createEdge(
+                  relatedDialog.sourceNode.id,
+                  targetId,
+                  "right",
+                  "left",
+                );
+                setRelatedDialog(null);
+              }}
+            />
           )}
         </div>
       </div>
