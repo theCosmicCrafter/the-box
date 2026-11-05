@@ -60,16 +60,24 @@ Two jobs on every push/PR, all actions pinned to commit SHAs:
   checkout → setup-node 24 → `npm ci` → rust toolchain (clippy,
   rustfmt) → typecheck, lint, `npm test`, `test:invariants`,
   `test:formats` → `cargo fmt --check`, `cargo clippy --all-targets`,
-  `cargo test`. The ubuntu leg additionally runs `npm audit
+  `cargo test`. The ubuntu leg first installs the Tauri/GTK system
+  packages (webkit2gtk, appindicator, rsvg - the cargo graph compiles
+  webkit2gtk-sys), with `DEBIAN_FRONTEND=noninteractive` + timeouts so
+  a hung apt run fails fast; it also runs `npm audit
   --audit-level=high` and `cargo audit` (rustsec/audit-check) - run
   once to avoid triple audit-DB fetches.
-- `secrets` - gitleaks full-history scan (`fetch-depth: 0`). Free for
-  personal accounts; org repos need a `GITLEAKS_LICENSE` secret.
+- `secrets` - gitleaks full-history scan (`fetch-depth: 0`). Needs
+  `pull-requests: write` + `issues: write` on the job token to scan PR
+  commits and comment; repos whose default `GITHUB_TOKEN` is
+  read-only will otherwise fail with "Resource not accessible by
+  integration". Free for personal accounts; org repos need a
+  `GITLEAKS_LICENSE` secret.
 
 `release.yml` builds Windows MSI/NSIS bundles on `v*` tags and
-publishes them to a GitHub release; macOS/Linux legs stay disabled
-until those bundle targets are verified (system deps make them
-non-trivial to validate blind).
+publishes them to a GitHub release; tags containing a hyphen (e.g.
+`v0.1.0-beta.1`) publish as prereleases. macOS/Linux legs stay
+disabled until those bundle targets are verified (system deps make
+them non-trivial to validate blind).
 
 Later job: `package` - `tauri build` (NSIS + MSI on Windows, dmg on macOS,
 iOS via Xcode on a macOS runner) on `v*` tag push.

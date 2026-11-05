@@ -25,8 +25,10 @@ with a smarter canvas:
 
 ## Install (Windows)
 
-1. Run the installer you received - either `The Box_0.1.0_x64_en-US.msi`
-   or `The Box_0.1.0_x64-setup.exe` (NSIS). Both install the same app.
+1. Download from the release page:
+   https://github.com/theCosmicCrafter/the-box/releases/tag/v0.1.0-beta.1
+   Pick either `The.Box_0.1.0_x64_en-US.msi` (recommended) or
+   `The.Box_0.1.0_x64-setup.exe` (NSIS). Both install the same app.
 2. **Windows SmartScreen will warn** that the app is unrecognized. That
    is expected: this beta is unsigned (no code-signing certificate yet).
    Click "More info" then "Run anyway".
