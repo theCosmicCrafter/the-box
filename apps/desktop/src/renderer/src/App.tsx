@@ -1,148 +1,48 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 // Stage 1 shell: workspace file list + board canvas + link-note panel.
-// The watcher pushes workspace:changed after every reconcile pass; we
-// rescan the list and reload the open board only when it truly changed
-// on disk (self-write echoes compare identical and are skipped).
+// Composition root only - domain logic lives in the use* hooks beside
+// this file (board lifecycle, node ops, link notes, ink, prefs, watcher,
+// shortcuts, filter, semantic search, layout, undo). The canvas is a
+// projection; files on disk remain the source of truth.
 
-import type {
-    CanvasNode,
-    ProblemItem,
-    Side
-} from "@box/core";
+import type { CanvasNode, ProblemItem } from "@box/core";
+import { baseName, fileKind, serializeBoard } from "@box/core";
+import type { Camera, MenuSpec } from "@box/ui";
 import {
-    baseName,
-    BOARD_FORMAT,
-    createDecisionClient,
-    createEdgePlan,
-    fallbackVector,
-    fileKind,
-    hasBoxFormatMarker,
-    hasScaffoldDirs,
-    importSpecCanvas,
-    isPathRel,
-    missingScaffoldFiles,
-    newNodeId,
-    parseBoard,
-    parseLinkNote,
-    serializeBoard,
-    topKSimilar
-} from "@box/core";
-import type {
-    Camera,
-    FilterKind,
-    MenuSpec,
-    WorkspaceFile,
-} from "@box/ui";
-import {
-    alignNodes,
     BoardView,
     BoxPanel,
     CanvasFilter,
     ContextMenu,
     DEFAULT_CAMERA,
-    distributeNodes,
-    exportBoardToSvg,
-    exportSvgToPngBlob,
     FileTree,
-    gridPlaceRect,
     HelpModal,
     Icon,
     ImageInspector,
-    matchNode,
     NotePanel,
     QuickOpen,
     Ribbon,
     screenToWorld,
     StatusBar,
     TabBar,
-    tidyGrid,
-    triggerDownload,
     useBoxStore,
 } from "@box/ui";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { applyPlan, boxPlatform, type WorkspaceChanged } from "./bridge.js";
-import { loadSettings, makeSaver } from "./settings.js";
+import { boxPlatform } from "./bridge.js";
+import { ExportDialog } from "./ExportDialog.js";
 import { buildCanvasMenu, buildNodeMenu, buildTreeMenu, type MenuDeps } from "./menus.js";
 import { RelatedNotesDialog } from "./RelatedNotesDialog.js";
+import { useBoardLifecycle } from "./useBoardLifecycle.js";
+import { useBoardShortcuts } from "./useBoardShortcuts.js";
+import { useCanvasFilter } from "./useCanvasFilter.js";
 import { useFileExcerpts } from "./useFileExcerpts.js";
 import { useInkOverlay } from "./useInkOverlay.js";
+import { useLayoutOps } from "./useLayoutOps.js";
 import { useLinkNotes } from "./useLinkNotes.js";
+import { useNodeOps } from "./useNodeOps.js";
+import { useSemanticSearch } from "./useSemanticSearch.js";
 import { useUndoStack } from "./useUndoStack.js";
-import {
-    setSpatialAudioMode,
-    spatialTick,
-    type SpatialAudioMode,
-} from "./spatialAudio.js";
-
-declare global {
-  interface Window {
-    box?: {
-      openWorkspace: () => Promise<{
-        root: string;
-        files: WorkspaceFile[];
-      } | null>;
-      rescan: (root: string) => Promise<WorkspaceFile[]>;
-      lastWorkspace: () => Promise<string | null>;
-      watchWorkspace: (
-        root: string,
-      ) => Promise<{ ok: boolean; error?: string }>;
-      onWorkspaceChanged: (cb: (e: WorkspaceChanged) => void) => () => void;
-      requestSync: () => Promise<void>;
-      readFile: (root: string, rel: string) => Promise<string | null>;
-      writeFileAtomic: (
-        root: string,
-        rel: string,
-        content: string,
-      ) => Promise<{ ok: boolean; error?: string }>;
-      trashFile: (
-        root: string,
-        rel: string,
-      ) => Promise<{ ok: boolean; error?: string }>;
-      appendTombstone: (
-        root: string,
-        edgeId: string,
-      ) => Promise<{ ok: boolean; error?: string }>;
-      openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
-      revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
-      openWith: (
-        rel: string,
-        app: string,
-      ) => Promise<{ ok: boolean; error?: string }>;
-      pickApp: () => Promise<string | null>;
-      importFiles: (paths: string[]) => Promise<{
-        ok: boolean;
-        imported: { rel: string; src: string }[];
-        skipped: { src: string; reason: string }[];
-      }>;
-      newFile: (
-        dir: string,
-        stem: string,
-        ext: string,
-        content: string,
-      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      newBinaryFile: (
-        dir: string,
-        stem: string,
-        ext: string,
-        b64: string,
-      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      copyFile: (
-        rel: string,
-      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      fileIcon: (
-        rel: string,
-      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      fileThumb: (
-        rel: string,
-      ) => Promise<{ ok: boolean; path?: string; error?: string }>;
-      pickFiles: (imagesOnly: boolean) => Promise<string[]>;
-      decidePost: (url: string, body: string) => Promise<string>;
-      onFileDrop: (
-        cb: (paths: string[], x: number, y: number) => void,
-      ) => Promise<() => void>;
-    };
-  }
-}
+import { useWorkspacePrefs } from "./useWorkspacePrefs.js";
+import { useWorkspaceWatcher } from "./useWorkspaceWatcher.js";
 
 const fmtProblem = (p: ProblemItem) => `${p.kind}: ${p.path} - ${p.detail}`;
 
@@ -156,9 +56,7 @@ export function App() {
     problems,
     sidebarOpen,
     setSidebarOpen,
-    setWorkspace,
     setFiles,
-    openBoard,
     closeBoard,
     moveNode,
     addNode,
@@ -206,6 +104,12 @@ export function App() {
     gestureDirty.current = false;
   };
 
+  const rescan = async () => {
+    if (workspaceRoot && window.box) {
+      setFiles(await window.box.rescan(workspaceRoot));
+    }
+  };
+
   // Ink mode + .ink.svg sidecar ops live in useInkOverlay.ts.
   const {
     inkMode,
@@ -223,157 +127,6 @@ export function App() {
     inkUndo,
     inkErase,
   } = useInkOverlay({ workspaceRoot, board, updateNodeC, saveBoard });
-
-  // Reconcile-authoritative broken sets (pushed by the watcher).
-  const [remote, setRemote] = useState<{
-    brokenNodes: Set<string>;
-    brokenEdges: Set<string>;
-  } | null>(null);
-  // First-run surface: board creation + doc excerpts + text editing.
-  const [newBoardName, setNewBoardName] = useState("");
-  const [editingNode, setEditingNode] = useState<string | null>(null);
-  // Image inspector (PureRef/Eagle): the file path currently inspected.
-  const [inspectPath, setInspectPath] = useState<string | null>(null);
-  // FR-305: ext -> picked app path, persisted in .box/settings.json.
-  const [openWithMap, setOpenWithMap] = useState<Record<string, string>>({});
-  const [audioMode, setAudioMode] = useState<SpatialAudioMode>("off");
-  const savePrefs = useRef<ReturnType<typeof makeSaver> | null>(null);
-  // FR-202 pick-up mode: a Box row's file follows the cursor until the
-  // user clicks the canvas to place it (or Esc cancels).
-  const [pickUp, setPickUp] = useState<string | null>(null);
-  // Shift+1 zoom-to-fit request.
-  const [fitAll, setFitAll] = useState<{ nonce: number } | null>(null);
-  // Status-bar zoom: camera changes stream through onCameraChange; the
-  // readout is throttled so a zoom gesture doesn't re-render per frame.
-  const [zoomPct, setZoomPct] = useState(100);
-  const zoomPctAt = useRef(0);
-  const [zoomRequest, setZoomRequest] = useState<{
-    action: "in" | "out" | "reset";
-    nonce: number;
-  } | null>(null);
-  const zoomNonce = useRef(0);
-  const requestZoom = (action: "in" | "out" | "reset") =>
-    setZoomRequest({ action, nonce: ++zoomNonce.current });
-  // FR-104: text-kind file node being edited in place.
-  const [fileEdit, setFileEdit] = useState<{
-    nodeId: string;
-    file: string;
-    text: string;
-  } | null>(null);
-  // FR-205: camera-jump request (nonce re-fires when the same node is
-  // jumped to twice in a row).
-  const [focusNode, setFocusNode] = useState<{
-    id: string;
-    nonce: number;
-  } | null>(null);
-  const newBoardInput = useRef<HTMLInputElement>(null);
-  // Canvas context menu + the camera/viewport handles OS file drops need
-  // to convert window coords into world space.
-  const [menu, setMenu] = useState<MenuSpec | null>(null);
-  const [quickOpen, setQuickOpen] = useState(false);
-  // Track 4: Canvas Search & Filter Overlay
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [filterQuery, setFilterQuery] = useState("");
-  const [filterKind, setFilterKind] = useState<FilterKind>("all");
-  const [filterMatchIdx, setFilterMatchIdx] = useState(0);
-
-  // Track 3: Local Semantic Intelligence Dialog
-  const [relatedDialog, setRelatedDialog] = useState<{
-    sourceNode: CanvasNode;
-    results: {
-      id: string;
-      name: string;
-      excerpt?: string | undefined;
-      score: number;
-    }[];
-  } | null>(null);
-
-  // ADR-0013: Workstation features (Export, HelpModal, Tabs, Edge Styling, Recents)
-  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportFormat, setExportFormat] = useState<"png" | "svg">("png");
-  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
-  const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>(() => {
-    try {
-      return JSON.parse(
-        localStorage.getItem("box.recentWorkspaces") || "[]",
-      ) as string[];
-    } catch {
-      return [];
-    }
-  });
-
-  const camRef = useRef<Camera>(DEFAULT_CAMERA);
-  const vpElRef = useRef<HTMLDivElement | null>(null);
-
-  // Media URL through the box:// protocol (main validates inside root).
-  // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
-  // the URL changes, so <img>/<video> re-fetch instead of serving a stale
-  // cache entry. Windows custom schemes serve at https://box.localhost
-  // (WebView2 limitation - ADR-0006); elsewhere real box://.
-  const resolveMedia = (rel: string) => {
-    const mtime = files.find((f) => f.path === rel)?.mtime;
-    const v = mtime === undefined ? "" : `?v=${Math.floor(mtime)}`;
-    const enc = encodeURIComponent(rel);
-    return boxPlatform === "windows"
-      ? `https://box.localhost/f/${enc}${v}`
-      : `box://f/${enc}${v}`;
-  };
-
-  // Typed tiles get the OS-associated icon (cached PNG under .box/icons).
-  const resolveIcon = async (rel: string) => {
-    const r = await window.box?.fileIcon(rel);
-    return r?.ok && r.path ? resolveMedia(r.path) : null;
-  };
-
-  // Typed tiles try a shell thumbnail first: real content (video frames,
-  // codec-installed heic/raw, blender's registered handler) over icons.
-  const resolveThumb = async (rel: string) => {
-    const r = await window.box?.fileThumb(rel);
-    return r?.ok && r.path ? resolveMedia(r.path) : null;
-  };
-
-  const open = async () => {
-    if (!window.box) {
-      useBoxStore
-        .getState()
-        .setProblems(["bridge missing - preload did not load"]);
-      return;
-    }
-    const r = await window.box.openWorkspace();
-    if (r) {
-      setWorkspace(r.root, r.files);
-      const nextRecents = [
-        r.root,
-        ...recentWorkspaces.filter((p) => p !== r.root),
-      ].slice(0, 5);
-      setRecentWorkspaces(nextRecents);
-      try {
-        localStorage.setItem(
-          "box.recentWorkspaces",
-          JSON.stringify(nextRecents),
-        );
-      } catch {
-        // ignore quota / restricted storage
-      }
-      const w = await window.box.watchWorkspace(r.root);
-      await loadPrefs(r.root);
-      await openFirstBoard(r.files, r.root);
-      if (!w.ok)
-        useBoxStore
-          .getState()
-          .setProblems([
-            `watcher unavailable: ${w.error} - manual rescan only`,
-          ]);
-    }
-  };
-
-  const rescan = async () => {
-    if (workspaceRoot && window.box) {
-      setFiles(await window.box.rescan(workspaceRoot));
-    }
-  };
 
   // "Arrows are notes" kernel - edge/link-note ops, endpoint-authority
   // sync (R-B), and the ADR-0010 proposal layer live in useLinkNotes.ts.
@@ -402,161 +155,79 @@ export function App() {
     captureUndo,
   });
 
-  const loadBoardFile = async (rel: string) => {
-    // Read root from the store, not the closure: callers that just ran
-    // setWorkspace (open, restore) still see the pre-set state value.
-    const root = useBoxStore.getState().workspaceRoot;
-    if (!root || !window.box) return false;
-    const rawText = await window.box.readFile(root, rel);
-    if (rawText === null) return false;
-    let text: string = rawText;
-    // ADR-0009: a foreign spec .canvas (no box-format marker) normalizes
-    // IN PLACE - remapped ids, generated link notes, added box-format -
-    // and keeps its name so spec readers (Obsidian) still open it.
-    if (
-      rel.endsWith(".canvas") &&
-      !rel.endsWith(".box.canvas") &&
-      !hasBoxFormatMarker(text)
-    ) {
-      const imp = importSpecCanvas(text, rel, {
-        // A foreign canvas can carry edge ids colliding with live
-        // link-*.md files; existing notes win over generated stubs.
-        existingNotePaths: new Set(
-          useBoxStore.getState().files.map((f) => f.path),
-        ),
-      });
-      if ("error" in imp) {
-        useBoxStore
-          .getState()
-          .setProblems([
-            `malformed-board: ${rel} - not a canvas (${imp.error})`,
-          ]);
-        return false;
-      }
-      const w = await window.box.writeFileAtomic(root, rel, imp.boardJson);
-      if (!w.ok) {
-        useBoxStore
-          .getState()
-          .setProblems([`canvas import write failed: ${w.error}`]);
-        return false;
-      }
-      for (const n of imp.notes) {
-        const nw = await window.box.writeFileAtomic(root, n.path, n.content);
-        if (!nw.ok) {
-          useBoxStore
-            .getState()
-            .setProblems([`canvas import note failed at ${n.path}`]);
-          return false;
-        }
-      }
-      text = imp.boardJson;
-    }
-    const { value, problems } = parseBoard(text, rel);
-    if (value) {
-      openBoard(rel, value, problems);
-      // ADR-0007 v2: seed restart-surviving undo from the board's log.
-      void seedOplog(root, rel);
-      return true;
-    }
-    useBoxStore.getState().setProblems(problems.map(fmtProblem));
-    return false;
-  };
+  // Camera/viewport handles shared by node ops, prefs' audio tick, OS
+  // drops, and the pick-up overlay's screen-to-world conversion.
+  const camRef = useRef<Camera>(DEFAULT_CAMERA);
+  const vpElRef = useRef<HTMLDivElement | null>(null);
 
-  // "Notepad ready" (Obsidian): opening a workspace lands you on a board -
-  // the first .box.canvas found, or a fresh .box/main.box.canvas if none.
-  const openFirstBoard = async (files: WorkspaceFile[], root: string) => {
-    const first = files
-      .map((f) => f.path)
-      .filter((p) => p.endsWith(".box.canvas"))
-      .sort()[0];
-    if (first !== undefined) {
-      await loadBoardFile(first);
-      return;
-    }
-    const rel = ".box/main.box.canvas";
-    const r = await window.box?.writeFileAtomic(
-      root,
-      rel,
-      serializeBoard({ nodes: [], edges: [], "box-format": BOARD_FORMAT }),
-    );
-    if (r?.ok === true) {
-      useBoxStore
-        .getState()
-        .setFiles([...files, { path: rel, size: 0, mtime: Date.now() }]);
-      await loadBoardFile(rel);
-    }
-  };
+  // App-owned UI state: dialogs, overlays, selection, zoom plumbing.
+  // FR-202 pick-up mode: a Box row's file follows the cursor until the
+  // user clicks the canvas to place it (or Esc cancels).
+  const [pickUp, setPickUp] = useState<string | null>(null);
+  // Shift+1 zoom-to-fit request.
+  const [fitAll, setFitAll] = useState<{ nonce: number } | null>(null);
+  // Status-bar zoom: camera changes stream through onCameraChange; the
+  // readout is throttled so a zoom gesture doesn't re-render per frame.
+  const [zoomPct, setZoomPct] = useState(100);
+  const zoomPctAt = useRef(0);
+  const [zoomRequest, setZoomRequest] = useState<{
+    action: "in" | "out" | "reset";
+    nonce: number;
+  } | null>(null);
+  const zoomNonce = useRef(0);
+  const requestZoom = (action: "in" | "out" | "reset") =>
+    setZoomRequest({ action, nonce: ++zoomNonce.current });
+  // FR-205: camera-jump request (nonce re-fires when the same node is
+  // jumped to twice in a row).
+  const [focusNode, setFocusNode] = useState<{
+    id: string;
+    nonce: number;
+  } | null>(null);
+  const jumpToNode = (id: string) => setFocusNode({ id, nonce: Date.now() });
+  const [menu, setMenu] = useState<MenuSpec | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+  // Image inspector (PureRef/Eagle): the file path currently inspected.
+  const [inspectPath, setInspectPath] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"png" | "svg">("png");
+  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
 
-  // Scaffold offer (ACCESS/LYT): visible only when the workspace has no
-  // ACCESS dirs at all, and only ever writes create-if-missing seeds.
-  const scaffoldOffered =
-    workspaceRoot !== null && !hasScaffoldDirs(files.map((f) => f.path));
-  const scaffold = async () => {
-    const root = useBoxStore.getState().workspaceRoot;
-    if (!root || !window.box) return;
-    const existing = new Set(useBoxStore.getState().files.map((f) => f.path));
-    const missing = missingScaffoldFiles(existing);
-    for (const f of missing) {
-      const r = await window.box.writeFileAtomic(root, f.path, f.content);
-      if (!r.ok) {
-        useBoxStore
-          .getState()
-          .setProblems([`scaffold failed at ${f.path}: ${r.error}`]);
-        return;
-      }
-    }
-    await rescan();
-  };
+  // Non-truth prefs (.box/settings.json): ink, audio, open-with, the
+  // decision client, plus the spatial-audio rAF tick and open-external.
+  const {
+    openWithMap,
+    setOpenWithMap,
+    audioMode,
+    savePrefs,
+    loadPrefs,
+    setInkColorPref,
+    setInkSizePref,
+    setAudioModePref,
+    openExternalSmart,
+  } = useWorkspacePrefs({
+    decisionClient,
+    setInkColor,
+    setInkSize,
+    inkColor,
+    inkSize,
+    camRef,
+    vpElRef,
+    boardNodes: board?.nodes,
+  });
 
-  // New board: write the empty canvas file, then open it.
-  const newBoard = async () => {
-    if (!workspaceRoot || !window.box) return;
-    const slug = newBoardName
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    if (slug === "") return;
-    const rel = `.box/${slug}.box.canvas`;
-    if (!isPathRel(rel)) {
-      useBoxStore.getState().setProblems([`bad board name: ${newBoardName}`]);
-      return;
-    }
-    const r = await window.box.writeFileAtomic(
-      workspaceRoot,
-      rel,
-      serializeBoard({ nodes: [], edges: [], "box-format": BOARD_FORMAT }),
-    );
-    if (r.ok) {
-      setNewBoardName("");
-      await loadBoardFile(rel);
-    } else {
-      useBoxStore.getState().setProblems([`board create failed: ${r.error}`]);
-    }
-  };
-
-  // CDP verification handle (tools/cdp-eval.mjs drives real assertions).
-  useEffect(() => {
-    (window as unknown as { __boxStore: typeof useBoxStore }).__boxStore =
-      useBoxStore;
-  }, []);
-
-  // Launch restore (Obsidian opens your last vault). Once per mount;
-  // readLastWorkspace in main already stat-checks the dir still exists.
-  const restored = useRef(false);
-  useEffect(() => {
-    if (restored.current || !window.box) return;
-    restored.current = true;
-    void (async () => {
-      const last = await window.box!.lastWorkspace();
-      if (!last) return;
-      const files = await window.box!.rescan(last);
-      await window.box!.watchWorkspace(last);
-      useBoxStore.getState().setWorkspace(last, files);
-      await loadPrefs(last);
-      await openFirstBoard(files, last);
-    })();
-  }, []);
+  // Workspace open/restore, board-file load, scaffold, new board.
+  const {
+    open,
+    loadBoardFile,
+    scaffoldOffered,
+    scaffold,
+    newBoard,
+    newBoardName,
+    setNewBoardName,
+    newBoardInput,
+  } = useBoardLifecycle({ rescan, seedOplog, loadPrefs });
 
   // File excerpts + sizes live in useFileExcerpts.ts (keyed loader).
   const { fileTexts, setFileTexts, fileSizes } = useFileExcerpts({
@@ -565,124 +236,134 @@ export function App() {
     files,
   });
 
-  // FR-305/307: .box/settings.json is non-truth prefs - load on workspace
-  // open, debounce-save on change. Missing/corrupt file degrades to
-  // defaults silently (settings.ts contract).
-  const loadPrefs = async (root: string) => {
-    savePrefs.current = makeSaver(root);
-    const s = await loadSettings(root);
-    if (typeof s.ink?.color === "string") setInkColor(s.ink.color);
-    if (typeof s.ink?.size === "number") setInkSize(s.ink.size);
-    if (s.audio?.mode === "all" || s.audio?.mode === "viewport")
-      setAudioMode(s.audio.mode);
-    setOpenWithMap(s.openWith ?? {});
-    // ADR-0010: rebuild the proposal client from non-truth prefs.
-    // Disabled by default; unreachable daemon resolves offline and the
-    // proposal layer simply renders nothing (FR-407, ERR-9). Transport is
-    // the loopback-only Rust command - webview fetch is CSP-blocked.
-    const ipcFetch: typeof fetch = async (input, init) => {
-      if (!window.box) throw new Error("bridge not ready");
-      const body = await window.box.decidePost(
-        String(input),
-        String(init?.body ?? ""),
-      );
-      return new Response(body, { status: 200 });
-    };
-    decisionClient.current = createDecisionClient({
-      enabled: s.ai?.enabled === true,
-      url: s.ai?.vonUrl,
-      fetchFn: s.ai?.enabled === true ? ipcFetch : undefined,
-    });
+  // Node lifecycle ops: create/place/import/paste/delete/group/duplicate,
+  // arrow-drop edge+node, in-place file editing, OS file drop.
+  const {
+    editingNode,
+    fileEdit,
+    setFileEdit,
+    createTextNode,
+    placeFile,
+    placeFiles,
+    placeAtViewCenter,
+    quickOpenPick,
+    placeAllGrid,
+    importAndPlace,
+    pasteAt,
+    pasteAtCenter,
+    dropEdgeAt,
+    deleteNode,
+    deleteNodes,
+    groupSelection,
+    ungroupSelection,
+    duplicateNodes,
+    commitText,
+    startFileEdit,
+    commitFileEdit,
+  } = useNodeOps({
+    saveBoard,
+    rescan,
+    addNodeC,
+    removeNodeC,
+    updateNodeC,
+    addEdge,
+    fileTexts,
+    setFileTexts,
+    camRef,
+    vpElRef,
+    jumpToNode,
+  });
+
+  // Track 4: Canvas Search & Filter Overlay.
+  const {
+    filterOpen,
+    setFilterOpen,
+    filterQuery,
+    setFilterQuery,
+    filterKind,
+    setFilterKind,
+    filterMatchIdx,
+    matchedNodeIds,
+    dimmedNodes,
+    nextFilterMatch,
+    prevFilterMatch,
+  } = useCanvasFilter({ board, fileTexts, jumpToNode });
+
+  // Track 3: Local Semantic Intelligence (ADR-0012).
+  const { relatedDialog, setRelatedDialog, findRelated } = useSemanticSearch({
+    fileTexts,
+  });
+
+  // Track 1: Layout & Tidy Tools (pure user-invoked, Invariant I-9 compliant).
+  const { runAlign, runDistribute, runTidyGrid } = useLayoutOps({
+    captureUndo,
+    gestureDirty,
+    saveBoard,
+  });
+
+  const undo = async () => {
+    const snap = undoStack.current.pop();
+    const b = useBoxStore.getState().board;
+    if (snap === undefined || b === null) return;
+    redoStack.current.push({ nodes: b.nodes, edges: b.edges });
+    gestureDirty.current = false;
+    restoreBoard(snap.nodes, snap.edges);
+    await healChangedEdgeNotes(b.edges, snap.edges, snap);
+    await saveBoard();
+    scheduleOplogFlush();
+  };
+  const redo = async () => {
+    const snap = redoStack.current.pop();
+    const b = useBoxStore.getState().board;
+    if (snap === undefined || b === null) return;
+    undoStack.current.push({ nodes: b.nodes, edges: b.edges });
+    gestureDirty.current = false;
+    restoreBoard(snap.nodes, snap.edges);
+    await healChangedEdgeNotes(b.edges, snap.edges, snap);
+    await saveBoard();
+    scheduleOplogFlush();
   };
 
-  const setInkColorPref = (c: string) => {
-    setInkColor(c);
-    savePrefs.current?.({ ink: { color: c, size: inkSize } });
-  };
-  const setInkSizePref = (s: number) => {
-    setInkSize(s);
-    savePrefs.current?.({ ink: { color: inkColor, size: s } });
-  };
+  // The round-trip half of the wedge: whatever the watcher reports, apply
+  // it. remote = reconcile-authoritative broken sets.
+  const { remote } = useWorkspaceWatcher({
+    edgeNotePath: edgeNote?.path,
+    noteDirty,
+    setEdgeNote,
+    setNoteStale,
+    fileTexts,
+    setFileTexts,
+    setInspectPath,
+    reloadInk,
+  });
 
-  // FR-306: cycle off -> all -> viewport; the mode persists as a non-truth
-  // pref and drives the WebAudio pan/gain graph for playing audio nodes.
-  const setAudioModePref = (m: SpatialAudioMode) => {
-    setSpatialAudioMode(m); // inside the click gesture: AudioContext allowed
-    setAudioMode(m);
-    savePrefs.current?.({ audio: { mode: m } });
-  };
+  // Global keys: Shift+1 zoom-to-fit, Esc unwinds dialogs in z-order,
+  // Ctrl+Z pops the last ink stroke while an ink mode is active.
+  useBoardShortcuts({
+    pickUp,
+    setPickUp,
+    filterOpen,
+    setFilterOpen,
+    relatedDialog,
+    setRelatedDialog,
+    helpOpen,
+    setHelpOpen,
+    exportOpen,
+    setExportOpen,
+    setFitAll,
+    setQuickOpen,
+    inkMode,
+    lastInkNode,
+    inkUndo,
+    undo,
+    redo,
+  });
 
-  // While spatial audio is on, recompute pan/gain every frame from the live
-  // camera; on switch-off (or board close) run one passthrough tick so
-  // already-wired elements return to neutral. The node lookup lives in a
-  // ref so the rAF loop is keyed only on the mode - rebuilding a Map and
-  // re-subscribing per board mutation was needless churn at 60fps.
-  const audioNodesRef = useRef<ReadonlyMap<string, CanvasNode>>(new Map());
+  // CDP verification handle (tools/cdp-eval.mjs drives real assertions).
   useEffect(() => {
-    audioNodesRef.current = new Map(
-      (board?.nodes ?? []).map((n) => [n.id, n]),
-    );
-  }, [board?.nodes]);
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const vp = vpElRef.current;
-      if (vp !== null) {
-        const r = vp.getBoundingClientRect();
-        spatialTick(camRef.current, r.width, r.height, audioNodesRef.current);
-      }
-      if (audioMode !== "off") raf = requestAnimationFrame(tick);
-    };
-    tick();
-    return () => cancelAnimationFrame(raf);
-  }, [audioMode]);
-
-  // FR-305: preferred app per extension wins over the OS default.
-  const openExternalSmart = async (rel: string) => {
-    if (!window.box) return;
-    const ext = `.${(rel.split(".").pop() ?? "").toLowerCase()}`;
-    const app = openWithMap[ext];
-    if (app !== undefined) {
-      const r = await window.box.openWith(rel, app);
-      if (r.ok) return;
-      // Recorded app vanished/failed - drop the pref, fall to default.
-      const next = { ...openWithMap };
-      delete next[ext];
-      setOpenWithMap(next);
-      savePrefs.current?.({ openWith: next });
-    }
-    const r = await window.box.openExternal(rel);
-    if (!r.ok)
-      useBoxStore.getState().setProblems([`open failed: ${rel} - ${r.error}`]);
-  };
-
-  // FR-104: in-place editing for text-kind file nodes - read the file,
-  // edit, write back atomically. Round-trips through the same path the
-  // excerpt loader uses so the preview refreshes.
-  const startFileEdit = async (node: CanvasNode) => {
-    if (!workspaceRoot || !window.box || node.type !== "file") return;
-    const t = await window.box.readFile(workspaceRoot, node.file);
-    if (t === null) {
-      useBoxStore.getState().setProblems([`cannot read ${node.file}`]);
-      return;
-    }
-    setFileEdit({ nodeId: node.id, file: node.file, text: t });
-  };
-  const commitFileEdit = async (nodeId: string, text: string) => {
-    const fe = fileEdit;
-    setFileEdit(null);
-    if (!fe || fe.nodeId !== nodeId || !workspaceRoot || !window.box) return;
-    if (text === fe.text) return;
-    const r = await window.box.writeFileAtomic(workspaceRoot, fe.file, text);
-    if (!r.ok) {
-      useBoxStore.getState().setProblems([`save failed: ${fe.file}`]);
-      return;
-    }
-    setFileTexts(new Map(fileTexts).set(fe.file, text.slice(0, 400)));
-  };
-
-  // FR-205: NotePanel from/to jump -> board camera centers the endpoint.
-  const jumpToNode = (id: string) => setFocusNode({ id, nonce: Date.now() });
+    (window as unknown as { __boxStore: typeof useBoxStore }).__boxStore =
+      useBoxStore;
+  }, []);
 
   // Problem rows are `kind: path - detail`. Clicking locates the object:
   // first look for any board edge/node whose id/file/sidecar appears anywhere in
@@ -720,750 +401,6 @@ export function App() {
     if (path?.endsWith(".canvas")) void loadBoardFile(path);
   };
 
-  // Global keys: Shift+1 zoom-to-fit (Obsidian), Esc cancels pick-up,
-  // Ctrl/Cmd+Z pops the last ink stroke while an ink mode is active.
-  // Text inputs are never hijacked.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          (t.closest?.("[contenteditable='true']") ?? null) !== null)
-      )
-        return;
-      if (e.key === "Escape") {
-        if (helpOpen) {
-          setHelpOpen(false);
-          return;
-        }
-        if (exportOpen) {
-          setExportOpen(false);
-          return;
-        }
-        if (pickUp !== null) {
-          setPickUp(null);
-          return;
-        }
-        if (filterOpen) {
-          setFilterOpen(false);
-          return;
-        }
-        if (relatedDialog !== null) {
-          setRelatedDialog(null);
-          return;
-        }
-      }
-      if (e.key === "?" || e.key === "F1") {
-        e.preventDefault();
-        setHelpOpen((v) => !v);
-        return;
-      }
-      if (
-        (e.key === "e" || e.key === "E") &&
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        board !== null
-      ) {
-        e.preventDefault();
-        setExportOpen(true);
-        return;
-      }
-      if (e.key === "!" && e.shiftKey && board !== null) {
-        setFitAll({ nonce: Date.now() });
-        return;
-      }
-      if (
-        (e.key === "f" || e.key === "F") &&
-        (e.ctrlKey || e.metaKey) &&
-        board !== null
-      ) {
-        e.preventDefault();
-        setFilterOpen((v) => !v);
-        return;
-      }
-      if (
-        (e.key === "p" || e.key === "P") &&
-        (e.ctrlKey || e.metaKey) &&
-        board !== null
-      ) {
-        e.preventDefault();
-        setQuickOpen((v) => !v);
-        return;
-      }
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && (e.key === "w" || e.key === "W")) {
-        // Ctrl+W closes the active board (tab-bar polish, Q4).
-        if (boardPath !== null) {
-          e.preventDefault();
-          closeBoard();
-        }
-        return;
-      }
-      if (mod && (e.key === "z" || e.key === "Z")) {
-        if (board === null) return;
-        e.preventDefault();
-        // Ink mode keeps its own stroke-level undo; the board stack
-        // owns everything else (ADR-0007).
-        if (e.shiftKey) void redo();
-        else if (inkMode !== "off" && lastInkNode.current !== null)
-          void inkUndo(lastInkNode.current);
-        else void undo();
-        return;
-      }
-      if (mod && (e.key === "y" || e.key === "Y")) {
-        if (board === null) return;
-        e.preventDefault();
-        void redo();
-        return;
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [
-    pickUp,
-    board,
-    boardPath,
-    filterOpen,
-    relatedDialog,
-    helpOpen,
-    exportOpen,
-    inkMode,
-    inkMap,
-    workspaceRoot,
-  ]);
-
-  // FR-202: place a Box file at the current viewport center (the "+"
-  // affordance) or at a dropped world point (pick-up click).
-  const placeAtViewCenter = async (path: string) => {
-    const vp = vpElRef.current;
-    if (!vp) return;
-    const r = vp.getBoundingClientRect();
-    const w = screenToWorld(camRef.current, r.width / 2, r.height / 2);
-    await placeFiles([path], w.x - 130, w.y - 90);
-  };
-  // Quick-open pick: already on the board -> jump to it (Obsidian
-  // switcher semantics); unplaced -> drop at viewport center.
-  const quickOpenPick = async (path: string) => {
-    const hit = board?.nodes.find((n) => n.type === "file" && n.file === path);
-    if (hit) {
-      setFocusNode({ id: hit.id, nonce: Date.now() });
-      return;
-    }
-    await placeAtViewCenter(path);
-  };
-  const placeAllGrid = async (paths: string[]) => {
-    const nodes = useBoxStore.getState().board?.nodes ?? [];
-    const next = [...nodes];
-    for (let i = 0; i < paths.length; i++) {
-      const g = gridPlaceRect(next, i);
-      const node: CanvasNode = {
-        id: newNodeId(),
-        type: "file",
-        x: g.x,
-        y: g.y,
-        width: 260,
-        height: 180,
-        file: paths[i]!,
-      };
-      addNodeC(node);
-      next.push(node);
-    }
-    await saveBoard();
-  };
-
-  // FR-202: the sidebar "unplaced" filter needs the set of files already
-  // on the open board.
-  const placedPaths = useMemo(
-    () =>
-      new Set(
-        (board?.nodes ?? [])
-          .filter((n) => n.type === "file")
-          .map((n) => (n.type === "file" ? n.file : "")),
-      ),
-    [board?.nodes],
-  );
-  const boundInkPaths = useMemo(
-    () =>
-      new Set(
-        (board?.nodes ?? [])
-          .filter((n) => n.type === "file" && typeof n["box-ink"] === "string")
-          .map((n) => (n.type === "file" ? (n["box-ink"] as string) : "")),
-      ),
-    [board?.nodes],
-  );
-
-  // Track 4: Canvas Search & Filter Overlay logic
-  const matchedNodeIds = useMemo(() => {
-    if (!board) return [];
-    return board.nodes
-      .filter((n) => matchNode(n, filterQuery, filterKind, fileTexts))
-      .map((n) => n.id);
-  }, [board, filterQuery, filterKind, fileTexts]);
-
-  const dimmedNodes = useMemo(() => {
-    const hasActiveFilter =
-      filterOpen && (filterQuery.trim().length > 0 || filterKind !== "all");
-    if (!hasActiveFilter || !board) return undefined;
-    const matched = new Set(matchedNodeIds);
-    const dimmed = new Set<string>();
-    for (const n of board.nodes) {
-      if (!matched.has(n.id)) dimmed.add(n.id);
-    }
-    return dimmed;
-  }, [filterOpen, filterQuery, filterKind, board, matchedNodeIds]);
-
-  // ADR-0013: Multi-board tabs
-  const boardTabs = useMemo(() => {
-    return files
-      .filter((f) => f.path.endsWith(".canvas"))
-      .map((f) => ({
-        path: f.path,
-        name: f.path.split("/").pop()?.replace(/\.canvas$/, "") ?? f.path,
-      }));
-  }, [files]);
-
-  const nextFilterMatch = () => {
-    if (matchedNodeIds.length === 0) return;
-    const next = (filterMatchIdx + 1) % matchedNodeIds.length;
-    setFilterMatchIdx(next);
-    const nid = matchedNodeIds[next];
-    if (nid) setFocusNode({ id: nid, nonce: Date.now() });
-  };
-
-  const prevFilterMatch = () => {
-    if (matchedNodeIds.length === 0) return;
-    const prev =
-      (filterMatchIdx - 1 + matchedNodeIds.length) % matchedNodeIds.length;
-    setFilterMatchIdx(prev);
-    const nid = matchedNodeIds[prev];
-    if (nid) setFocusNode({ id: nid, nonce: Date.now() });
-  };
-
-  // Track 1: Layout & Tidy Tools (pure user-invoked, Invariant I-9 compliant)
-  const runAlign = async (
-    type: "left" | "centerX" | "right" | "top" | "centerY" | "bottom",
-    ids: string[],
-  ) => {
-    gestureDirty.current = false;
-    captureUndo();
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const nextNodes = alignNodes(b.nodes, ids, type);
-    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
-    gestureDirty.current = false;
-    await saveBoard();
-  };
-
-  const runDistribute = async (
-    axis: "horizontal" | "vertical",
-    ids: string[],
-  ) => {
-    gestureDirty.current = false;
-    captureUndo();
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const nextNodes = distributeNodes(b.nodes, ids, axis);
-    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
-    gestureDirty.current = false;
-    await saveBoard();
-  };
-
-  const runTidyGrid = async (ids: string[]) => {
-    gestureDirty.current = false;
-    captureUndo();
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const nextNodes = tidyGrid(b.nodes, ids);
-    useBoxStore.getState().restoreBoard(nextNodes, b.edges);
-    gestureDirty.current = false;
-    await saveBoard();
-  };
-
-  // ADR-0013: Canvas high-res export
-  const handleExport = async () => {
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const bName =
-      boardPath?.split("/").pop()?.replace(/\.canvas$/, "") ?? "canvas-export";
-    const nodeIds =
-      exportScope === "selected" && selectedNodeIds.length > 0
-        ? selectedNodeIds
-        : undefined;
-    const svg = exportBoardToSvg(b, {
-      nodeIds,
-      padding: 40,
-      background: "#0e1117",
-    });
-    if (exportFormat === "svg") {
-      triggerDownload(svg, `${bName}.svg`);
-    } else {
-      const blob = await exportSvgToPngBlob(svg, 2);
-      triggerDownload(blob, `${bName}.png`);
-    }
-    setExportOpen(false);
-  };
-
-  // Track 3: Local Semantic Intelligence (ADR-0012)
-  // Session-scoped vector cache: a vector is a pure function of the node
-  // text it embeds, so identical text reuses the embedding instead of
-  // paying another loopback call on every "related" query.
-  const vecCache = useRef(new Map<string, number[]>());
-  const findRelated = async (sourceNode: CanvasNode) => {
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const candidates = b.nodes.filter((n) => n.id !== sourceNode.id);
-    if (candidates.length === 0) return;
-
-    const getNodeText = (n: CanvasNode): string => {
-      if (n.type === "text") return n.text;
-      if (n.type === "file")
-        return (fileTexts.get(n.file) ?? "") + " " + n.file;
-      if (n.type === "link") return (n.label ?? "") + " " + (n.url ?? "");
-      if (n.type === "group") return n.label ?? "";
-      return "";
-    };
-
-    const queryText = getNodeText(sourceNode);
-    if (!queryText.trim()) return;
-
-    const getVector = async (text: string): Promise<number[]> => {
-      const hit = vecCache.current.get(text);
-      if (hit !== undefined) return hit;
-      let vec: number[] | null = null;
-      try {
-        if (window.box?.decidePost) {
-          const body = JSON.stringify({
-            model: "bge-m3:latest",
-            prompt: text.slice(0, 1000),
-          });
-          const raw = await window.box.decidePost(
-            "http://127.0.0.1:11434/api/embeddings",
-            body,
-          );
-          const d = JSON.parse(raw) as { embedding?: number[] };
-          if (Array.isArray(d.embedding) && d.embedding.length > 0)
-            vec = d.embedding;
-        }
-      } catch {
-        // Local loopback offline fallback
-      }
-      const out = vec ?? fallbackVector(text);
-      if (vecCache.current.size > 2000) vecCache.current.clear();
-      vecCache.current.set(text, out);
-      return out;
-    };
-
-    const queryVec = await getVector(queryText);
-    const candidateVecs = new Map<string, number[]>();
-    for (const c of candidates) {
-      const text = getNodeText(c);
-      if (text.trim().length > 0) {
-        candidateVecs.set(c.id, await getVector(text));
-      }
-    }
-
-    const matches = topKSimilar(queryVec, candidateVecs, 5, 0.15);
-    const results = matches.map((m) => {
-      const n = candidates.find((x) => x.id === m.id)!;
-      const rawLabel = (n as { label?: unknown }).label;
-      const labelStr = typeof rawLabel === "string" ? rawLabel : n.id;
-      const name: string =
-        n.type === "file"
-          ? n.file
-          : n.type === "text"
-            ? n.text.slice(0, 40) + "…"
-            : labelStr;
-      const excerpt = n.type === "file" ? fileTexts.get(n.file) : undefined;
-      return {
-        id: n.id,
-        name,
-        excerpt,
-        score: Math.round(m.score * 100),
-      };
-    });
-
-    setRelatedDialog({
-      sourceNode,
-      results,
-    });
-  };
-
-  const undo = async () => {
-    const snap = undoStack.current.pop();
-    const b = useBoxStore.getState().board;
-    if (snap === undefined || b === null) return;
-    redoStack.current.push({ nodes: b.nodes, edges: b.edges });
-    gestureDirty.current = false;
-    restoreBoard(snap.nodes, snap.edges);
-    await healChangedEdgeNotes(b.edges, snap.edges, snap);
-    await saveBoard();
-    scheduleOplogFlush();
-  };
-  const redo = async () => {
-    const snap = redoStack.current.pop();
-    const b = useBoxStore.getState().board;
-    if (snap === undefined || b === null) return;
-    undoStack.current.push({ nodes: b.nodes, edges: b.edges });
-    gestureDirty.current = false;
-    restoreBoard(snap.nodes, snap.edges);
-    await healChangedEdgeNotes(b.edges, snap.edges, snap);
-    await saveBoard();
-    scheduleOplogFlush();
-  };
-
-  // The round-trip half of the wedge: whatever the watcher reports, apply
-  // it. Board reload compares serialized content so self-write echoes are
-  // skipped and a mid-drag board is never yanked by our own save.
-  useEffect(() => {
-    const api = window.box;
-    if (!api) return;
-    const un = api.onWorkspaceChanged((e) => {
-      const s = useBoxStore.getState();
-      setFiles(e.files);
-      s.setProblems(e.problems.map(fmtProblem));
-      setRemote({
-        brokenNodes: new Set(e.brokenNodes),
-        brokenEdges: new Set(e.brokenEdges),
-      });
-      for (const d of e.deltas) {
-        if (d.kind === "deleted") {
-          setFileTexts((prev) => {
-            if (!prev.has(d.path)) return prev;
-            const next = new Map(prev);
-            next.delete(d.path);
-            return next;
-          });
-        } else if (d.kind === "renamed" && d.to !== undefined) {
-          const to = d.to;
-          setInspectPath((cur) => (cur === d.path ? to : cur));
-          setFileTexts((prev) => {
-            const ex = prev.get(d.path) ?? fileTexts.get(d.path);
-            if (ex === undefined) return prev;
-            const next = new Map(prev);
-            next.delete(d.path);
-            next.set(to, ex);
-            return next;
-          });
-        }
-      }
-      const { boardPath: bp, board: cur, workspaceRoot: root } = s;
-      // External edits to placed file nodes: refresh their in-memory text excerpts immediately.
-      const placedFiles = new Set(
-        s.board?.nodes
-          .filter((n): n is CanvasNode & { type: "file" } => n.type === "file")
-          .map((n) => n.file) ?? [],
-      );
-      for (const p of e.changedPaths) {
-        if (placedFiles.has(p) && root) {
-          void api.readFile(root, p).then((text) => {
-            if (text !== null) {
-              const cap =
-                fileKind(p) === "board"
-                  ? 256 * 1024
-                  : fileKind(p) === "csv"
-                    ? 8 * 1024
-                    : 400;
-              setFileTexts((prev) => new Map(prev).set(p, text.slice(0, cap)));
-            }
-          });
-        }
-      }
-      if (root && bp && e.changedPaths.includes(bp)) {
-        void (async () => {
-          const text = await api.readFile(root, bp);
-          if (text === null) {
-            s.setProblems([`board deleted on disk: ${bp}`]);
-            return;
-          }
-          const { value, problems } = parseBoard(text, bp);
-          if (value && serializeBoard(value) !== serializeBoard(cur!)) {
-            openBoard(bp, value, problems);
-          }
-        })();
-      }
-      // External edit to an ink sidecar: refresh the overlays.
-      if (root && e.changedPaths.some((p) => p.endsWith(".ink.svg"))) {
-        void reloadInk();
-      }
-      // External edit to the open note: reload unless the user is editing.
-      const openPath = edgeNote?.path;
-      if (
-        root &&
-        openPath &&
-        e.changedPaths.includes(openPath) &&
-        !noteDirty.current
-      ) {
-        void api.readFile(root, openPath).then((text) => {
-          if (text === null) return;
-          const { value } = parseLinkNote(text, openPath);
-          if (value) setEdgeNote(value);
-        });
-      } else if (root && openPath && e.changedPaths.includes(openPath)) {
-        setNoteStale(true);
-      }
-    });
-    return un;
-  }, [workspaceRoot, edgeNote?.path]);
-
-  // Node creation: double-click empty canvas or drop a file from the list.
-  const createTextNode = async (wx: number, wy: number) => {
-    const node: CanvasNode = {
-      id: newNodeId(),
-      type: "text",
-      x: Math.round(wx),
-      y: Math.round(wy),
-      width: 220,
-      height: 90,
-      text: "",
-    };
-    addNodeC(node);
-    setEditingNode(node.id);
-    await saveBoard();
-  };
-
-  const placeFile = async (path: string, wx: number, wy: number) => {
-    await placeFiles([path], wx, wy);
-  };
-
-  // N files cascade-diagonal from the drop point; one board write total.
-  const placeFiles = async (paths: string[], wx: number, wy: number) => {
-    for (let i = 0; i < paths.length; i++) {
-      const node: CanvasNode = {
-        id: newNodeId(),
-        type: "file",
-        x: Math.round(wx) + i * 40,
-        y: Math.round(wy) + i * 40,
-        width: 260,
-        height: 180,
-        file: paths[i]!,
-      };
-      addNodeC(node);
-    }
-    await saveBoard();
-  };
-
-  // External files are COPIED into the workspace (files-are-truth: nodes
-  // only ever reference workspace-rel paths). Skipped entries are surfaced,
-  // never silent.
-  const importAndPlace = async (srcPaths: string[], wx: number, wy: number) => {
-    if (!window.box || srcPaths.length === 0) return;
-    const r = await window.box.importFiles(srcPaths);
-    const s = useBoxStore.getState();
-    if (!r.ok || r.skipped.length > 0) {
-      s.setProblems(r.skipped.map((x) => `skipped ${x.src}: ${x.reason}`));
-    }
-    if (r.imported.length > 0) {
-      await placeFiles(
-        r.imported.map((x) => x.rel),
-        wx,
-        wy,
-      );
-      await rescan();
-    }
-  };
-
-  // Clipboard → canvas: image items become real .png files (pasted bytes
-  // are user content, so they land as files like everything else); text
-  // becomes a text node already carrying the content.
-  const pasteAt = async (wx: number, wy: number) => {
-    if (!navigator.clipboard?.read) {
-      useBoxStore.getState().setProblems(["clipboard read unsupported"]);
-      return;
-    }
-    let items: ClipboardItem[];
-    try {
-      items = await navigator.clipboard.read();
-    } catch (e) {
-      useBoxStore.getState().setProblems([`clipboard read denied: ${e}`]);
-      return;
-    }
-    for (const item of items) {
-      const imgType = item.types.find((t) => t.startsWith("image/"));
-      if (imgType) {
-        const blob = await item.getType(imgType);
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        let bin = "";
-        for (let i = 0; i < bytes.length; i += 0x8000)
-          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        const r = await window.box!.newBinaryFile(
-          "",
-          "paste",
-          "png",
-          btoa(bin),
-        );
-        if (r.ok && r.path) await placeFile(r.path, wx, wy);
-        else
-          useBoxStore
-            .getState()
-            .setProblems([`paste failed: ${r.error ?? "unknown"}`]);
-        return;
-      }
-      if (item.types.includes("text/plain")) {
-        const text = await (await item.getType("text/plain")).text();
-        const node: CanvasNode = {
-          id: newNodeId(),
-          type: "text",
-          x: Math.round(wx),
-          y: Math.round(wy),
-          width: 260,
-          height: 120,
-          text: text.slice(0, 4000),
-        };
-        addNodeC(node);
-        await saveBoard();
-        return;
-      }
-    }
-    useBoxStore.getState().setProblems(["clipboard: nothing placeable"]);
-  };
-
-  // ---- right-click menus ----
-
-  // OS drag-drop: Tauri intercepts file drops (HTML5 never sees them) and
-  // reports physical-pixel positions - convert through dpr + the live
-  // camera into world coords, import the files, place the nodes.
-  useEffect(() => {
-    const api = window.box;
-    if (!workspaceRoot || !api?.onFileDrop) return;
-    let un: (() => void) | null = null;
-    void api
-      .onFileDrop((paths, x, y) => {
-        const el = vpElRef.current;
-        if (!el || paths.length === 0) return;
-        const r = el.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const w = screenToWorld(
-          camRef.current,
-          x / dpr - r.left,
-          y / dpr - r.top,
-        );
-        void importAndPlace(paths, w.x, w.y);
-      })
-      .then((u) => {
-        un = u;
-      });
-    return () => un?.();
-    // importAndPlace reads fresh state internally; workspace gate only
-  }, [workspaceRoot]);
-
-  // Arrow released over empty canvas: create the target text node and the
-  // edge in one plan (note write, then board write - I-1 ordering holds).
-  const dropEdgeAt = async (
-    fromId: string,
-    fromSide: Side,
-    wx: number,
-    wy: number,
-  ) => {
-    const b = useBoxStore.getState().board;
-    if (!workspaceRoot || !b || !boardPath) return;
-    const node: CanvasNode = {
-      id: newNodeId(),
-      type: "text",
-      x: Math.round(wx) - 110,
-      y: Math.round(wy) - 45,
-      width: 220,
-      height: 90,
-      text: "",
-    };
-    const grown: typeof b = { ...b, nodes: [...b.nodes, node] };
-    const { plan, edge } = createEdgePlan(grown, boardPath, fromId, node.id, {
-      fromSide,
-      toSide: "left",
-    });
-    const errors = await applyPlan(workspaceRoot, plan);
-    if (errors.length === 0) {
-      addNodeC(node);
-      addEdge(edge);
-      setEditingNode(node.id);
-      void rescan();
-    } else {
-      useBoxStore.getState().setProblems(errors);
-    }
-  };
-
-  // Delete key on a selected node: remove the placement, keep the file.
-  const deleteNode = async (id: string) => {
-    removeNodeC(id);
-    await saveBoard();
-  };
-
-  // Multi-delete: one capture + one board write for the whole set.
-  const deleteNodes = async (ids: string[]) => {
-    for (const id of ids) removeNodeC(id);
-    await saveBoard();
-  };
-
-  // JSON Canvas groups: spatial membership (node center inside bounds),
-  // so creating a group is just placing a bigger rect around the set.
-  const groupSelection = async (ids: string[]) => {
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const ns = b.nodes.filter((n) => ids.includes(n.id));
-    if (ns.length === 0) return;
-    const PAD = 48;
-    const x0 = Math.min(...ns.map((n) => n.x)) - PAD;
-    const y0 = Math.min(...ns.map((n) => n.y)) - PAD;
-    const x1 = Math.max(...ns.map((n) => n.x + n.width)) + PAD;
-    const y1 = Math.max(...ns.map((n) => n.y + n.height)) + PAD;
-    addNodeC({
-      id: newNodeId(),
-      type: "group",
-      x: x0,
-      y: y0,
-      width: x1 - x0,
-      height: y1 - y0,
-      label: "Group",
-    });
-    await saveBoard();
-  };
-
-  // Ungroup removes the group rect only - members are never touched.
-  const ungroupSelection = async (ids: string[]) => {
-    const b = useBoxStore.getState().board;
-    if (!b) return;
-    const groups = ids.filter((id) =>
-      b.nodes.some((n) => n.id === id && n.type === "group"),
-    );
-    for (const id of groups) removeNodeC(id);
-    if (groups.length > 0) await saveBoard();
-  };
-
-  // Ctrl+D duplicate: text/link/group nodes clone their record; file
-  // nodes copy the file on disk first (files-are-truth - two nodes may
-  // not share one object identity).
-  const duplicateNodes = async (ids: string[]) => {
-    const b = useBoxStore.getState().board;
-    if (!b || !window.box) return;
-    for (const id of ids) {
-      const n = b.nodes.find((x) => x.id === id);
-      if (!n) continue;
-      if (n.type === "file") {
-        const r = await window.box.copyFile(n.file);
-        if (!r.ok || !r.path) {
-          useBoxStore
-            .getState()
-            .setProblems([`duplicate failed: ${r.error ?? "unknown"}`]);
-          continue;
-        }
-        addNodeC({
-          ...n,
-          id: newNodeId(),
-          x: n.x + 32,
-          y: n.y + 32,
-          file: r.path,
-        });
-        continue;
-      }
-      addNodeC({ ...n, id: newNodeId(), x: n.x + 32, y: n.y + 32 });
-    }
-    await saveBoard();
-    await rescan();
-  };
-
-  // Ctrl+V: paste at the viewport center (same content paths as the
-  // context-menu paste, just keyboard-driven).
   // Context menus are declarations in menus.ts; menuDeps captures the
   // live callbacks once per render (defined after every dep exists).
   const menuDeps: MenuDeps = {
@@ -1513,20 +450,63 @@ export function App() {
       items: buildNodeMenu(menuDeps, node, cx, cy, selectedIds),
     });
 
-
-  const pasteAtCenter = async () => {
-    const vp = vpElRef.current;
-    if (!vp) return;
-    const r = vp.getBoundingClientRect();
-    const w = screenToWorld(camRef.current, r.width / 2, r.height / 2);
-    await pasteAt(w.x, w.y);
+  // Media URL through the box:// protocol (main validates inside root).
+  // ?v=<mtime> is Obsidian's cache-buster: an external edit bumps mtime and
+  // the URL changes, so <img>/<video> re-fetch instead of serving a stale
+  // cache entry. Windows custom schemes serve at https://box.localhost
+  // (WebView2 limitation - ADR-0006); elsewhere real box://.
+  const resolveMedia = (rel: string) => {
+    const mtime = files.find((f) => f.path === rel)?.mtime;
+    const v = mtime === undefined ? "" : `?v=${Math.floor(mtime)}`;
+    const enc = encodeURIComponent(rel);
+    return boxPlatform === "windows"
+      ? `https://box.localhost/f/${enc}${v}`
+      : `box://f/${enc}${v}`;
   };
 
-  const commitText = async (id: string, text: string) => {
-    updateNodeC(id, { text });
-    setEditingNode(null);
-    await saveBoard();
+  // Typed tiles get the OS-associated icon (cached PNG under .box/icons).
+  const resolveIcon = async (rel: string) => {
+    const r = await window.box?.fileIcon(rel);
+    return r?.ok && r.path ? resolveMedia(r.path) : null;
   };
+
+  // Typed tiles try a shell thumbnail first: real content (video frames,
+  // codec-installed heic/raw, blender's registered handler) over icons.
+  const resolveThumb = async (rel: string) => {
+    const r = await window.box?.fileThumb(rel);
+    return r?.ok && r.path ? resolveMedia(r.path) : null;
+  };
+
+  // FR-202: the sidebar "unplaced" filter needs the set of files already
+  // on the open board.
+  const placedPaths = useMemo(
+    () =>
+      new Set(
+        (board?.nodes ?? [])
+          .filter((n) => n.type === "file")
+          .map((n) => (n.type === "file" ? n.file : "")),
+      ),
+    [board?.nodes],
+  );
+  const boundInkPaths = useMemo(
+    () =>
+      new Set(
+        (board?.nodes ?? [])
+          .filter((n) => n.type === "file" && typeof n["box-ink"] === "string")
+          .map((n) => (n.type === "file" ? (n["box-ink"] as string) : "")),
+      ),
+    [board?.nodes],
+  );
+
+  // ADR-0013: Multi-board tabs
+  const boardTabs = useMemo(() => {
+    return files
+      .filter((f) => f.path.endsWith(".canvas"))
+      .map((f) => ({
+        path: f.path,
+        name: f.path.split("/").pop()?.replace(/\.canvas$/, "") ?? f.path,
+      }));
+  }, [files]);
 
   // Broken-file detection: file nodes whose target isn't in the workspace.
   const brokenNodes = useMemo(() => {
@@ -1686,7 +666,7 @@ export function App() {
             <RelatedNotesDialog
               dialog={relatedDialog}
               onClose={() => setRelatedDialog(null)}
-              onJump={(id) => setFocusNode({ id, nonce: Date.now() })}
+              onJump={jumpToNode}
               onLink={(targetId) => {
                 void createEdge(
                   relatedDialog.sourceNode.id,
@@ -1875,94 +855,16 @@ export function App() {
         )}
         <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
         {exportOpen && board !== null && (
-          <div
-            className="help-modal-backdrop"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setExportOpen(false);
-            }}
-          >
-            <div className="export-modal">
-              <h3>
-                <Icon name="camera" size={18} />
-                Export Canvas Snapshot
-              </h3>
-              <div className="export-options">
-                <div className="export-row">
-                  <span>Format:</span>
-                  <div className="note-edge-pills">
-                    <button
-                      type="button"
-                      className={
-                        "note-pill" + (exportFormat === "png" ? " active" : "")
-                      }
-                      onClick={() => setExportFormat("png")}
-                    >
-                      PNG (High-Res 2x)
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "note-pill" + (exportFormat === "svg" ? " active" : "")
-                      }
-                      onClick={() => setExportFormat("svg")}
-                    >
-                      SVG (Vector)
-                    </button>
-                  </div>
-                </div>
-                <div className="export-row">
-                  <span>Scope:</span>
-                  <div className="note-edge-pills">
-                    <button
-                      type="button"
-                      className={
-                        "note-pill" + (exportScope === "all" ? " active" : "")
-                      }
-                      onClick={() => setExportScope("all")}
-                    >
-                      All ({board.nodes.length} nodes)
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "note-pill" +
-                        (exportScope === "selected" ? " active" : "") +
-                        (selectedNodeIds.length === 0 ? " disabled" : "")
-                      }
-                      disabled={selectedNodeIds.length === 0}
-                      onClick={() => setExportScope("selected")}
-                    >
-                      Selection ({selectedNodeIds.length} nodes)
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="export-actions">
-                <button
-                  type="button"
-                  className="btn-tiny"
-                  style={{ padding: "6px 12px" }}
-                  onClick={() => setExportOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="btn-tiny"
-                  style={{
-                    padding: "6px 14px",
-                    background: "#2563eb",
-                    borderColor: "#3b82f6",
-                    color: "#ffffff",
-                    fontWeight: 600,
-                  }}
-                  onClick={() => void handleExport()}
-                >
-                  Download {exportFormat.toUpperCase()}
-                </button>
-              </div>
-            </div>
-          </div>
+          <ExportDialog
+            board={board}
+            boardPath={boardPath}
+            selectedNodeIds={selectedNodeIds}
+            format={exportFormat}
+            onFormat={setExportFormat}
+            scope={exportScope}
+            onScope={setExportScope}
+            onClose={() => setExportOpen(false)}
+          />
         )}
       </div>
     </main>
