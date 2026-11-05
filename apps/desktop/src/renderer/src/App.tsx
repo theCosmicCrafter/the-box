@@ -9,7 +9,6 @@ import type {
     CanvasNode,
     Delta,
     IDecisionClient,
-    InkStroke,
     LinkNote,
     LinkTypeProposal,
     ProblemItem,
@@ -32,17 +31,14 @@ import {
     missingScaffoldFiles,
     newNodeId,
     parseBoard,
-    parseInkSvg,
     parseLinkNote,
     serializeBoard,
-    serializeInkSvg,
     serializeLinkNote,
     topKSimilar
 } from "@box/core";
 import type {
     Camera,
     FilterKind,
-    InkPoint,
     MenuItem,
     MenuSpec,
     WorkspaceFile,
@@ -64,16 +60,12 @@ import {
     ImageInspector,
     matchNode,
     NotePanel,
-    pathToPolygon,
-    pointInPolygon,
     QuickOpen,
     Ribbon,
     screenToWorld,
     StatusBar,
-    strokeToPath,
     TabBar,
     tidyGrid,
-    translatePath,
     triggerDownload,
     useBoxStore,
 } from "@box/ui";
@@ -81,6 +73,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
 import { useFileExcerpts } from "./useFileExcerpts.js";
+import { useInkOverlay } from "./useInkOverlay.js";
 import { useUndoStack } from "./useUndoStack.js";
 import {
     setSpatialAudioMode,
@@ -240,6 +233,35 @@ export function App() {
     updateNode(id, patch);
   };
 
+  const saveBoard = async () => {
+    const b = useBoxStore.getState().board;
+    if (!workspaceRoot || !b || !boardPath || !window.box) return;
+    await window.box.writeFileAtomic(
+      workspaceRoot,
+      boardPath,
+      serializeBoard(b),
+    );
+    gestureDirty.current = false;
+  };
+
+  // Ink mode + .ink.svg sidecar ops live in useInkOverlay.ts.
+  const {
+    inkMode,
+    setInkMode,
+    inkColor,
+    setInkColor,
+    inkSize,
+    setInkSize,
+    inkMap,
+    setInkMap,
+    lastInkNode,
+    reloadInk,
+    inkStroke,
+    inkStrokeMove,
+    inkUndo,
+    inkErase,
+  } = useInkOverlay({ workspaceRoot, board, updateNodeC, saveBoard });
+
   // Reconcile-authoritative broken sets (pushed by the watcher).
   const [remote, setRemote] = useState<{
     brokenNodes: Set<string>;
@@ -260,15 +282,6 @@ export function App() {
   const [editingNode, setEditingNode] = useState<string | null>(null);
   // Image inspector (PureRef/Eagle): the file path currently inspected.
   const [inspectPath, setInspectPath] = useState<string | null>(null);
-  // Ink: "off" | "draw" | "erase" | "edit" board mode + parsed strokes.
-  const [inkMode, setInkMode] = useState<"off" | "draw" | "erase" | "edit">(
-    "off",
-  );
-  const [inkColor, setInkColor] = useState<string>("#e8b931");
-  const [inkSize, setInkSize] = useState<number>(10);
-  const [inkMap, setInkMap] = useState<Map<string, InkStroke[]>>(new Map());
-  // Last node a stroke was written to - ink undo's target.
-  const lastInkNode = useRef<string | null>(null);
   // FR-305: ext -> picked app path, persisted in .box/settings.json.
   const [openWithMap, setOpenWithMap] = useState<Record<string, string>>({});
   const [audioMode, setAudioMode] = useState<SpatialAudioMode>("off");
@@ -573,60 +586,6 @@ export function App() {
     files,
   });
 
-  // Ink sidecars: re-read every `box-ink` target so external edits to an
-  // .ink.svg refresh the overlay (the watcher re-fires this via deps).
-  const reloadInk = async () => {
-    const b = useBoxStore.getState().board;
-    if (!workspaceRoot || !window.box || !b) return;
-    const next = new Map<string, InkStroke[]>();
-    for (const n of b.nodes) {
-      if (n.type !== "file") continue;
-      const rel = n["box-ink"];
-      if (typeof rel !== "string") continue;
-      const t = await window.box.readFile(workspaceRoot, rel);
-      if (t === null) continue;
-      const { value, problems } = parseInkSvg(t, rel);
-      if (problems.length > 0) {
-        useBoxStore.getState().setProblems(problems.map(fmtProblem));
-      }
-      if (value) next.set(n.id, value.strokes);
-    }
-    setInkMap(next);
-  };
-  useEffect(() => {
-    void reloadInk();
-  }, [board?.nodes, workspaceRoot]);
-
-  // FR-105: a finished stroke appends to the node's sidecar; the source
-  // file itself is never touched.
-  const inkStroke = async (nodeId: string, pts: InkPoint[]) => {
-    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
-    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
-    const rel =
-      typeof n["box-ink"] === "string" ? n["box-ink"] : `${n.file}.ink.svg`;
-    const d = strokeToPath(pts, inkSize);
-    if (!d) return;
-    const strokes = [
-      ...(inkMap.get(nodeId) ?? []),
-      { d, fill: inkColor, stroke: inkColor, "stroke-width": inkSize },
-    ];
-    const r = await window.box.writeFileAtomic(
-      workspaceRoot,
-      rel,
-      serializeInkSvg({ strokes }),
-    );
-    if (!r.ok) {
-      useBoxStore
-        .getState()
-        .setProblems([`ink save failed: ${r.error ?? rel}`]);
-      return;
-    }
-    if (n["box-ink"] !== rel) updateNodeC(nodeId, { "box-ink": rel });
-    setInkMap(new Map(inkMap).set(nodeId, strokes));
-    lastInkNode.current = nodeId;
-    await saveBoard();
-  };
-
   // FR-305/307: .box/settings.json is non-truth prefs - load on workspace
   // open, debounce-save on change. Missing/corrupt file degrades to
   // defaults silently (settings.ts contract).
@@ -716,106 +675,6 @@ export function App() {
     const r = await window.box.openExternal(rel);
     if (!r.ok)
       useBoxStore.getState().setProblems([`open failed: ${rel} - ${r.error}`]);
-  };
-
-  // Ink edit mode (FR-307 partial): drag translates a stroke's polygon.
-  // Foreign (non-polygon) paths refuse the move rather than corrupting.
-  const inkStrokeMove = async (
-    nodeId: string,
-    idx: number,
-    dx: number,
-    dy: number,
-  ) => {
-    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
-    const strokes = inkMap.get(nodeId);
-    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
-    const rel = n["box-ink"];
-    if (typeof rel !== "string" || !strokes || idx < 0 || idx >= strokes.length)
-      return;
-    const nd = translatePath(strokes[idx]!.d, dx, dy);
-    if (nd === null) return;
-    const next = strokes.map((s, i) => (i === idx ? { ...s, d: nd } : s));
-    const r = await window.box.writeFileAtomic(
-      workspaceRoot,
-      rel,
-      serializeInkSvg({ strokes: next }),
-    );
-    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, next));
-  };
-
-  // Ink undo: pop the last stroke off a node's sidecar; empty sidecar is
-  // trashed recoverably, same as the erase-all path.
-  const inkUndo = async (nodeId: string) => {
-    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
-    const strokes = inkMap.get(nodeId);
-    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
-    const rel = n["box-ink"];
-    if (typeof rel !== "string" || !strokes || strokes.length === 0) return;
-    const kept = strokes.slice(0, -1);
-    if (kept.length === 0) {
-      await window.box.trashFile(workspaceRoot, rel);
-      updateNodeC(nodeId, { "box-ink": undefined });
-      const m = new Map(inkMap);
-      m.delete(nodeId);
-      setInkMap(m);
-      await saveBoard();
-      return;
-    }
-    const r = await window.box.writeFileAtomic(
-      workspaceRoot,
-      rel,
-      serializeInkSvg({ strokes: kept }),
-    );
-    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, kept));
-  };
-
-  // FR-106: erase removes whole strokes hit by the pointer (a small ring
-  // of sample points makes the target forgiving). Empty sidecars are
-  // trashed, not left as zero-byte litter.
-  const inkErase = async (nodeId: string, lx: number, ly: number) => {
-    const n = useBoxStore.getState().board?.nodes.find((x) => x.id === nodeId);
-    const strokes = inkMap.get(nodeId);
-    if (!workspaceRoot || !window.box || !n || n.type !== "file") return;
-    const rel = n["box-ink"];
-    if (typeof rel !== "string" || !strokes || strokes.length === 0) return;
-    const samples: Array<[number, number]> = [
-      [lx, ly],
-      [lx + 5, ly],
-      [lx - 5, ly],
-      [lx, ly + 5],
-      [lx, ly - 5],
-    ];
-    const hit = (d: string) => {
-      const poly = pathToPolygon(d);
-      if (poly) return samples.some(([x, y]) => pointInPolygon(x, y, poly));
-      // Non-polygon `d` (hand-written or older sidecars): DOM hit-test
-      // in the path's own user units, same space lx/ly are in.
-      const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      el.setAttribute("d", d);
-      const pt = new DOMPoint(0, 0);
-      return samples.some(([x, y]) => {
-        pt.x = x;
-        pt.y = y;
-        return el.isPointInFill(pt);
-      });
-    };
-    const kept = strokes.filter((s) => !hit(s.d));
-    if (kept.length === strokes.length) return;
-    if (kept.length === 0) {
-      await window.box.trashFile(workspaceRoot, rel);
-      updateNodeC(nodeId, { "box-ink": undefined });
-      const m = new Map(inkMap);
-      m.delete(nodeId);
-      setInkMap(m);
-      await saveBoard();
-      return;
-    }
-    const r = await window.box.writeFileAtomic(
-      workspaceRoot,
-      rel,
-      serializeInkSvg({ strokes: kept }),
-    );
-    if (r.ok) setInkMap(new Map(inkMap).set(nodeId, kept));
   };
 
   // FR-104: in-place editing for text-kind file nodes - read the file,
@@ -1055,17 +914,6 @@ export function App() {
       ),
     [board?.nodes],
   );
-
-  const saveBoard = async () => {
-    const b = useBoxStore.getState().board;
-    if (!workspaceRoot || !b || !boardPath || !window.box) return;
-    await window.box.writeFileAtomic(
-      workspaceRoot,
-      boardPath,
-      serializeBoard(b),
-    );
-    gestureDirty.current = false;
-  };
 
   // Track 4: Canvas Search & Filter Overlay logic
   const matchedNodeIds = useMemo(() => {
