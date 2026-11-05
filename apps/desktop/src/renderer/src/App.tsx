@@ -39,7 +39,6 @@ import {
 import type {
     Camera,
     FilterKind,
-    MenuItem,
     MenuSpec,
     WorkspaceFile,
 } from "@box/ui";
@@ -72,6 +71,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { loadSettings, makeSaver } from "./settings.js";
+import { buildCanvasMenu, buildNodeMenu, buildTreeMenu, type MenuDeps } from "./menus.js";
 import { useFileExcerpts } from "./useFileExcerpts.js";
 import { useInkOverlay } from "./useInkOverlay.js";
 import { useUndoStack } from "./useUndoStack.js";
@@ -1580,422 +1580,6 @@ export function App() {
 
   // ---- right-click menus ----
 
-  const canvasMenu = (wx: number, wy: number, cx: number, cy: number) => {
-    const items: MenuItem[] = [
-      {
-        label: "New text note",
-        icon: "type",
-        hint: "dbl-click",
-        onPick: () => void createTextNode(wx, wy),
-      },
-      {
-        label: "New document",
-        icon: "fileText",
-        onPick: () =>
-          void (async () => {
-            const r = await window.box!.newFile("", "untitled", "md", "");
-            if (r.ok && r.path) await placeFile(r.path, wx, wy);
-            else if (!r.ok)
-              useBoxStore
-                .getState()
-                .setProblems([`new document failed: ${r.error}`]);
-            await rescan();
-          })(),
-      },
-      {
-        label: "New board",
-        icon: "board",
-        onPick: () =>
-          void (async () => {
-            const r = await window.box!.newFile(
-              ".box",
-              "board",
-              "box.canvas",
-              serializeBoard({
-                nodes: [],
-                edges: [],
-                "box-format": BOARD_FORMAT,
-              }),
-            );
-            if (r.ok && r.path) {
-              await rescan();
-              await loadBoardFile(r.path);
-            } else if (!r.ok) {
-              useBoxStore
-                .getState()
-                .setProblems([`new board failed: ${r.error}`]);
-            }
-          })(),
-      },
-      {
-        label: "Import files…",
-        icon: "import",
-        onPick: () =>
-          void window
-            .box!.pickFiles(false)
-            .then((p) => importAndPlace(p, wx, wy)),
-      },
-      {
-        label: "Import image…",
-        icon: "image",
-        onPick: () =>
-          void window
-            .box!.pickFiles(true)
-            .then((p) => importAndPlace(p, wx, wy)),
-      },
-      {
-        label: "Paste",
-        icon: "clipboard",
-        hint: "ctrl+v",
-        disabled: !("clipboard" in navigator && "read" in navigator.clipboard),
-        onPick: () => void pasteAt(wx, wy),
-      },
-    ];
-    setMenu({ x: cx, y: cy, items });
-  };
-
-  // Q2: FileTree context menu - file ops the tree didn't expose. The
-  // vault root ("") only offers creation; rows get open/reveal/copy/
-  // delete plus board-open for .canvas files.
-  const treeMenu = (path: string, isDir: boolean, x: number, y: number) => {
-    if (!workspaceRoot || !window.box) return;
-    const items: MenuItem[] = [];
-    if (isDir) {
-      items.push({
-        label: "New file here",
-        icon: "filePlus",
-        onPick: () =>
-          void (async () => {
-            const r = await window.box!.newFile(path, "untitled", "md", "");
-            if (r.ok) await rescan();
-            else
-              useBoxStore
-                .getState()
-                .setProblems([`new file failed: ${r.error}`]);
-          })(),
-      });
-    } else {
-      if (path.endsWith(".canvas")) {
-        items.push({
-          label: "Open board",
-          icon: "board",
-          onPick: () => void loadBoardFile(path),
-        });
-      }
-      items.push(
-        {
-          label: "Open",
-          icon: "external",
-          onPick: () => void openExternalSmart(path),
-        },
-        {
-          label: "Reveal in Explorer",
-          icon: "folder",
-          onPick: () => void window.box!.revealFile(path),
-        },
-        {
-          label: "Copy path",
-          icon: "clipboard",
-          onPick: () => void navigator.clipboard.writeText(path),
-        },
-        {
-          label: "Move to trash",
-          icon: "trash",
-          danger: true,
-          onPick: () =>
-            void (async () => {
-              const r = await window.box!.trashFile(workspaceRoot, path);
-              if (r.ok) await rescan();
-              else
-                useBoxStore
-                  .getState()
-                  .setProblems([`trash failed: ${path} - ${r.error}`]);
-            })(),
-        },
-      );
-    }
-    setMenu({ x, y, items });
-  };
-
-  const nodeMenu = (
-    node: CanvasNode,
-    cx: number,
-    cy: number,
-    selectedIds?: string[],
-  ) => {
-    const items: MenuItem[] = [];
-    const multi = selectedIds && selectedIds.length >= 2 ? selectedIds : null;
-
-    if (multi) {
-      items.push(
-        {
-          label: "Align…",
-          icon: "box",
-          onPick: () => {
-            const alignSubmenu: MenuItem[] = [
-              {
-                label: "Align left",
-                onPick: () => void runAlign("left", multi),
-              },
-              {
-                label: "Align center (horizontal)",
-                onPick: () => void runAlign("centerX", multi),
-              },
-              {
-                label: "Align right",
-                onPick: () => void runAlign("right", multi),
-              },
-              {
-                label: "Align top",
-                onPick: () => void runAlign("top", multi),
-              },
-              {
-                label: "Align center (vertical)",
-                onPick: () => void runAlign("centerY", multi),
-              },
-              {
-                label: "Align bottom",
-                onPick: () => void runAlign("bottom", multi),
-              },
-            ];
-            setMenu({ x: cx, y: cy, items: alignSubmenu });
-          },
-        },
-        {
-          label: "Distribute…",
-          icon: "box",
-          disabled: multi.length < 3,
-          onPick: () => {
-            const distSubmenu: MenuItem[] = [
-              {
-                label: "Distribute horizontally",
-                onPick: () => void runDistribute("horizontal", multi),
-              },
-              {
-                label: "Distribute vertically",
-                onPick: () => void runDistribute("vertical", multi),
-              },
-            ];
-            setMenu({ x: cx, y: cy, items: distSubmenu });
-          },
-        },
-        {
-          label: "Tidy into grid",
-          icon: "grid",
-          onPick: () => void runTidyGrid(multi),
-        },
-        {
-          label: `Group ${multi.length} nodes`,
-          icon: "box",
-          hint: "ctrl+g",
-          onPick: () => void groupSelection(multi),
-        },
-        {
-          label: `Duplicate ${multi.length} nodes`,
-          icon: "filePlus",
-          hint: "ctrl+d",
-          onPick: () => void duplicateNodes(multi),
-        },
-        {
-          label: `Remove ${multi.length} from canvas`,
-          icon: "file",
-          danger: true,
-          hint: "del",
-          onPick: () => void deleteNodes(multi),
-        },
-      );
-    }
-
-    // Track 3: Local semantic intelligence
-    items.push({
-      label: "Find related notes",
-      icon: "search",
-      onPick: () => void findRelated(node),
-    });
-
-    if (node.type === "file") {
-      const file = node.file;
-      const ext = `.${(file.split(".").pop() ?? "").toLowerCase()}`;
-      items.push(
-        {
-          label: "Open externally",
-          icon: "external",
-          hint: "dbl-click",
-          onPick: () => void openExternalSmart(file),
-        },
-        {
-          label: "Open with…",
-          icon: "external",
-          onPick: () =>
-            void (async () => {
-              const app = await window.box?.pickApp();
-              if (!app) return;
-              const r = await window.box!.openWith(file, app);
-              if (r.ok) {
-                const next = { ...openWithMap, [ext]: app };
-                setOpenWithMap(next);
-                savePrefs.current?.({ openWith: next });
-              } else {
-                useBoxStore
-                  .getState()
-                  .setProblems([`open-with failed: ${r.error}`]);
-              }
-            })(),
-        },
-      );
-      if (openWithMap[ext] !== undefined) {
-        items.push({
-          label: `Reset default app for ${ext}`,
-          icon: "refresh",
-          onPick: () => {
-            const next = { ...openWithMap };
-            delete next[ext];
-            setOpenWithMap(next);
-            savePrefs.current?.({ openWith: next });
-          },
-        });
-      }
-      items.push({
-        label: "Reveal in Explorer",
-        icon: "folderOpen",
-        hint: "alt+dbl",
-        onPick: () => void window.box?.revealFile(file),
-      });
-      // JSON Canvas `color` is spec-native ("1"-"6" presets + hex) - a
-      // chained menu keeps the flat ContextMenu component untouched.
-      items.push({
-        label: "Set color…",
-        icon: "pen",
-        onPick: () => {
-          const swatch = (v: string | null, label: string): MenuItem => ({
-            label,
-            onPick: () => {
-              updateNodeC(node.id, { color: v ?? undefined });
-              void saveBoard();
-            },
-          });
-          const items2: MenuItem[] = [
-            swatch(null, "Default"),
-            swatch("1", "Red"),
-            swatch("2", "Orange"),
-            swatch("3", "Yellow"),
-            swatch("4", "Green"),
-            swatch("5", "Cyan"),
-            swatch("6", "Purple"),
-          ];
-          setMenu({ x: cx, y: cy, items: items2 });
-        },
-      });
-      if (fileKind(file) === "image") {
-        items.push({
-          label: "Inspect",
-          icon: "image",
-          onPick: () => setInspectPath(file),
-        });
-      }
-      if (fileKind(file) === "text" || fileKind(file) === "code") {
-        items.push({
-          label: "Edit in place",
-          icon: "type",
-          hint: "dbl-click",
-          onPick: () => void startFileEdit(node),
-        });
-      }
-      if (typeof node["box-ink"] === "string") {
-        items.push({
-          label: "Clear ink strokes",
-          icon: "eraser",
-          onPick: () =>
-            void (async () => {
-              const rel = node["box-ink"];
-              if (typeof rel !== "string" || !workspaceRoot) return;
-              await window.box!.trashFile(workspaceRoot, rel);
-              updateNode(node.id, { "box-ink": undefined });
-              const m = new Map(inkMap);
-              m.delete(node.id);
-              setInkMap(m);
-              await saveBoard();
-            })(),
-        });
-      }
-      items.push(
-        {
-          label: "Remove from canvas",
-          icon: "file",
-          onPick: () => void deleteNode(node.id),
-        },
-        {
-          label: "Move file to Recycle Bin",
-          icon: "trash",
-          danger: true,
-          onPick: () =>
-            void (async () => {
-              const r = await window.box!.trashFile(
-                useBoxStore.getState().workspaceRoot!,
-                file,
-              );
-              if (r.ok) {
-                // The node would render broken (I-7); an intentional delete
-                // removes the placement too - the watcher reconciles edges.
-                removeNodeC(node.id);
-                await saveBoard();
-                await rescan();
-              } else {
-                useBoxStore
-                  .getState()
-                  .setProblems([`trash failed: ${r.error}`]);
-              }
-            })(),
-        },
-      );
-    } else {
-      if (node.type === "group") {
-        // ADR-0008 regions: a group carrying `box-region` is a named zone
-        // with parameters. label=region name, locked=children ignore drags.
-        const region = node["box-region"] as
-          { v?: number; locked?: boolean } | undefined;
-        if (region === undefined) {
-          items.push({
-            label: "Make region",
-            icon: "box",
-            onPick: () => {
-              updateNodeC(node.id, { "box-region": { v: 1, locked: false } });
-              void saveBoard();
-            },
-          });
-        } else {
-          items.push(
-            {
-              label:
-                region.locked === true ? "Unlock children" : "Lock children",
-              icon: "move",
-              onPick: () => {
-                updateNodeC(node.id, {
-                  "box-region": { ...region, locked: region.locked !== true },
-                });
-                void saveBoard();
-              },
-            },
-            {
-              label: "Remove region",
-              icon: "file",
-              onPick: () => {
-                updateNodeC(node.id, { "box-region": undefined });
-                void saveBoard();
-              },
-            },
-          );
-        }
-      }
-      items.push({
-        label: "Remove from canvas",
-        icon: "file",
-        onPick: () => void deleteNode(node.id),
-      });
-    }
-    setMenu({ x: cx, y: cy, items });
-  };
-
   // OS drag-drop: Tauri intercepts file drops (HTML5 never sees them) and
   // reports physical-pixel positions - convert through dpr + the live
   // camera into world coords, import the files, place the nodes.
@@ -2139,6 +1723,56 @@ export function App() {
 
   // Ctrl+V: paste at the viewport center (same content paths as the
   // context-menu paste, just keyboard-driven).
+  // Context menus are declarations in menus.ts; menuDeps captures the
+  // live callbacks once per render (defined after every dep exists).
+  const menuDeps: MenuDeps = {
+    openMenu: setMenu,
+    updateNodeC,
+    updateNode,
+    removeNodeC,
+    saveBoard,
+    rescan,
+    loadBoardFile,
+    deleteNode,
+    deleteNodes,
+    groupSelection,
+    duplicateNodes,
+    runAlign,
+    runDistribute,
+    runTidyGrid,
+    findRelated,
+    openExternalSmart,
+    startFileEdit,
+    setInspectPath,
+    openWithMap,
+    setOpenWithMap,
+    savePrefs,
+    inkMap,
+    setInkMap,
+    createTextNode,
+    placeFile,
+    importAndPlace,
+    pasteAt,
+  };
+  const canvasMenu = (wx: number, wy: number, cx: number, cy: number) =>
+    setMenu({ x: cx, y: cy, items: buildCanvasMenu(menuDeps, wx, wy) });
+  const treeMenu = (path: string, isDir: boolean, x: number, y: number) => {
+    const items = buildTreeMenu(menuDeps, path, isDir);
+    if (items !== null) setMenu({ x, y, items });
+  };
+  const nodeMenu = (
+    node: CanvasNode,
+    cx: number,
+    cy: number,
+    selectedIds?: string[],
+  ) =>
+    setMenu({
+      x: cx,
+      y: cy,
+      items: buildNodeMenu(menuDeps, node, cx, cy, selectedIds),
+    });
+
+
   const pasteAtCenter = async () => {
     const vp = vpElRef.current;
     if (!vp) return;
