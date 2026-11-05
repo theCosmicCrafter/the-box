@@ -5,7 +5,7 @@
 // (Windows custom schemes serve at https://box.localhost, real box://
 // elsewhere).
 
-import type { Delta, ProblemItem } from "@box/core";
+import type { Delta, ProblemItem, WritePlan } from "@box/core";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview, type DragDropEvent } from "@tauri-apps/api/webview";
 import { onWorkspaceChanged, requestSync, watchSyncSession } from "./sync.js";
@@ -126,4 +126,27 @@ export async function installBoxBridge(): Promise<void> {
         if (p.type === "drop") cb(p.paths, p.position.x, p.position.y);
       }),
   };
+}
+
+/** Execute a box-core WritePlan against the workspace, steps in order. */
+export async function applyPlan(
+  root: string,
+  plan: WritePlan,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const api = window.box;
+  if (!api) return ["no bridge"];
+  for (const step of plan.steps) {
+    const r =
+      step.op === "write-atomic"
+        ? await api.writeFileAtomic(root, step.path, step.content)
+        : step.op === "trash"
+          ? await api.trashFile(root, step.path)
+          : await api.appendTombstone(root, step.edgeId);
+    if (!r.ok)
+      errors.push(
+        `${step.op} ${"path" in step ? step.path : step.edgeId}: ${r.error}`,
+      );
+  }
+  return errors;
 }
