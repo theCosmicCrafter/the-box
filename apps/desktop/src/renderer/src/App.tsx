@@ -26,6 +26,7 @@ import {
     TabBar,
     useBoxStore,
 } from "@box/ui";
+import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxPlatform } from "./bridge.js";
 import { ExportDialog } from "./ExportDialog.js";
@@ -399,6 +400,29 @@ export function App() {
     const m = /^[^:]+:\s([^-]+?)(?:\s-\s|$)/.exec(p);
     const path = m?.[1]?.trim();
     if (path?.endsWith(".canvas")) void loadBoardFile(path);
+  };
+
+  // In-app issue reporting (beta): diagnostics go to the clipboard for a
+  // paste-into-issue workflow, then the tracker opens in the browser.
+  const reportIssue = async () => {
+    const s = useBoxStore.getState();
+    const version = await getVersion().catch(() => "unknown");
+    const diag = [
+      `The Box ${version} (${boxPlatform})`,
+      `workspace: ${s.workspaceRoot ?? "none"}`,
+      `files: ${s.files.length}, board: ${s.boardPath ?? "none"}`,
+      `nodes: ${s.board?.nodes.length ?? 0}, edges: ${s.board?.edges.length ?? 0}`,
+      s.problems.length > 0 ? `problems:\n${s.problems.join("\n")}` : "problems: none",
+      `ua: ${navigator.userAgent}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(diag);
+    } catch {
+      // Clipboard may be denied; still open the tracker.
+    }
+    await window.box?.openUrl(
+      "https://github.com/theCosmicCrafter/the-box/issues/new/choose",
+    );
   };
 
   // Context menus are declarations in menus.ts; menuDeps captures the
@@ -853,7 +877,11 @@ export function App() {
             onClose={() => setQuickOpen(false)}
           />
         )}
-        <HelpModal isOpen={helpOpen} onClose={() => setHelpOpen(false)} />
+        <HelpModal
+          isOpen={helpOpen}
+          onClose={() => setHelpOpen(false)}
+          onReportIssue={() => void reportIssue()}
+        />
         {exportOpen && board !== null && (
           <ExportDialog
             board={board}

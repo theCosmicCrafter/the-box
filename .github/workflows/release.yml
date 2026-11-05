@@ -31,3 +31,5 @@ jobs:
         with:
           files: apps/desktop/src-tauri/target/release/bundle/**/*
           fail_on_unmatched_files: true
+          # vX.Y.Z-suffix tags (v0.1.0-beta.1) publish as prereleases.
+          prerelease: ${{ contains(github.ref_name, '-') }}

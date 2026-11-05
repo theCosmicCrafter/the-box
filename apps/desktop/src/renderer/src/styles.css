@@ -2016,6 +2016,30 @@ button:hover {
   cursor: pointer;
 }
 
+.help-modal-report {
+  padding: 10px 18px;
+  background: #0f131a;
+  border-bottom: 1px solid #1b222e;
+}
+
+.help-report-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 1px solid #2a3a4a;
+  border-radius: 6px;
+  color: #7eb8ff;
+  font-size: 12px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.help-report-btn:hover {
+  background: #16202e;
+  border-color: #3b82f6;
+}
+
 .help-modal-body {
   padding: 16px 18px;
   overflow-y: auto;

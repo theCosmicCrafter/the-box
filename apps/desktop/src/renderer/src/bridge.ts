@@ -72,6 +72,7 @@ export interface BoxApi {
     edgeId: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   openExternal: (rel: string) => Promise<{ ok: boolean; error?: string }>;
+  openUrl: (url: string) => Promise<{ ok: boolean; error?: string }>;
   revealFile: (rel: string) => Promise<{ ok: boolean; error?: string }>;
   openWith: (
     rel: string,
@@ -136,6 +137,9 @@ export async function installBoxBridge(): Promise<void> {
       invoke("fs_append_tombstone", { root, edgeId }),
     openExternal: (rel: string): Promise<CmdResult> =>
       invoke("open_external", { rel }),
+    // In-app "Report an issue" - Rust allowlists the repo issues area.
+    openUrl: (url: string): Promise<CmdResult> =>
+      invoke("open_url", { url }),
     revealFile: (rel: string): Promise<CmdResult> =>
       invoke("reveal_file", { rel }),
     // FR-305: user-picked app gets the file as argv[1] (detached spawn).

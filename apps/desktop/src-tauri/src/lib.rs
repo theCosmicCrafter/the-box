@@ -692,6 +692,21 @@ fn platform() -> &'static str {
     std::env::consts::OS
 }
 
+// In-app "Report an issue": opens the project tracker in the default
+// browser. The URL is allowlisted to this repo's issues area - a generic
+// open-any-URL command would be an unexpected remote-triggerable surface.
+#[tauri::command]
+fn open_url(url: String) -> CmdResult {
+    const ALLOWED: &str = "https://github.com/theCosmicCrafter/the-box/issues";
+    if !url.starts_with(ALLOWED) {
+        return cmd_err("url outside allowed issues area");
+    }
+    match opener::open(&url) {
+        Ok(()) => cmd_ok(),
+        Err(e) => cmd_err(e),
+    }
+}
+
 // FR-305 "Open with": the user picks an app per extension; the chosen exe
 // gets the workspace file as its argv[1] (per Old New Thing: programs that
 // open files accept a quoted path arg - ShellExecute's open verb does the
@@ -1503,6 +1518,7 @@ pub fn run() {
             fs_trash,
             fs_append_tombstone,
             open_external,
+            open_url,
             reveal_file,
             fs_open_with,
             pick_app,

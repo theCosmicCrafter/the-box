@@ -171,7 +171,12 @@ externally** uses that preference, falling back to the Windows default.
 
 ## Reporting bugs
 
-File issues at:
+Easiest: press `?` or `F1` in the app and click **Report an issue** -
+it copies a diagnostics summary (version, platform, board stats, current
+problems) to your clipboard and opens the issue tracker. Paste the
+diagnostics into the report.
+
+Or file issues directly at:
 <https://github.com/theCosmicCrafter/the-box/issues>
 
 Most useful to include:

@@ -37,6 +37,17 @@ is parsed by us.
 | **Watcher-induced DoS**: event flood                                         | Debounce + full-scan + "indexing" state (DATA-MODEL §5.2.5).                                                                                                                                                                                                                            |
 | **Tombstone ledger tampering**                                               | Tombstones only _complete_ deletes; worst case = a note stays deleted. Entries expire in 30 days.                                                                                                                                                                                       |
 | **Tainted `settings.json`** (open-with app path pointing at malware)         | App paths are user-set through the prefs UI, never from workspace files; `.box/settings.json` edits are read but app paths must exist on disk and are shown in prefs.                                                                                                                   |
+| **Renderer-triggered URL open** (`open_url` command, added for in-app bug reports) | The command allowlists URLs to the repo `issues` prefix only and rejects everything else Rust-side. A generic open-any-URL command would be a remote-triggerable surface; it is deliberately not one. |
+
+### Supply-chain advisories (tracked, not yet fixable)
+
+- **glib 0.18.5** (GHSA-wrw7-89jp-8q8g, moderate): unsound `VariantStrIter`
+  iterators. Patched in glib-rs 0.20.0, but the whole gtk-rs 0.18 chain
+  (gtk/gio/atk/cairo-rs) is pinned by `tauri 2.12` / `tao 0.37` / `wry` -
+  no in-range fix exists until Tauri bumps its gtk ecosystem. Reachability:
+  the crate only compiles on Linux targets (webkit2gtk does not exist in
+  the Windows build), and The Box calls no `glib` APIs directly. Status:
+  accepted/documented; recheck on each Tauri upgrade.
 
 ## 3. Non-negotiables reaffirmed
 

@@ -75,7 +75,12 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
-export function HelpModal(props: { isOpen: boolean; onClose: () => void }) {
+export function HelpModal(props: {
+  isOpen: boolean;
+  onClose: () => void;
+  /** In-app "Report an issue" affordance (copies diagnostics, opens tracker). */
+  onReportIssue?: () => void;
+}) {
   const [filter, setFilter] = useState("");
 
   useEffect(() => {
@@ -138,6 +143,19 @@ export function HelpModal(props: { isOpen: boolean; onClose: () => void }) {
           )}
         </div>
 
+        {props.onReportIssue && (
+          <div className="help-modal-report">
+            <button
+              type="button"
+              className="help-report-btn"
+              onClick={props.onReportIssue}
+              title="Copies a diagnostics summary to the clipboard, then opens the issue tracker"
+            >
+              <Icon name="external" size={14} />
+              Report an issue (copies diagnostics)
+            </button>
+          </div>
+        )}
         <div className="help-modal-body">
           {filteredGroups.length === 0 ? (
             <div className="help-modal-empty">No shortcuts matching &ldquo;{filter}&rdquo;</div>
