@@ -87,7 +87,7 @@ fn resolve_inside_never_escapes() {
 }
 
 #[cfg(unix)]
-fn try_symlink(target: &Path, link: &Path) -> bool {
+fn try_symlink_dir(target: &Path, link: &Path) -> bool {
     std::os::unix::fs::symlink(target, link).is_ok()
 }
 #[cfg(windows)]
