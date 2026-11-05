@@ -3,6 +3,15 @@
 > **A lighter Obsidian with a smarter canvas.**
 > Objects are files. Arrows are notes. Edits round-trip.
 
+> [!WARNING]
+> **Work in progress - public beta.** The Box is under active development and is
+> not a finished product. The Windows beta installer on the
+> [Releases](https://github.com/theCosmicCrafter/the-box/releases) page is a
+> pre-release build for testers: expect rough edges, missing features, and
+> occasional bugs. Please report problems on the
+> [issue tracker](https://github.com/theCosmicCrafter/the-box/issues) instead of
+> judging it as a shipped app.
+
 The Box is an independent, local-first desktop canvas for worldbuilding and creative reference.
 Everything on the canvas is a real file on disk. Drawing an arrow between two objects creates a
 real Markdown note that documents the relationship. Double-clicking an object opens it in your
@@ -17,7 +26,7 @@ open-with external editors, all live-verified under WebView2.
 
 Current snapshot (see `docs/TEST-PLAN.md` for the verification matrix):
 
-- 130 core + 59 UI + 29 Rust tests green; typecheck, eslint, clippy clean
+- 139 core + 86 UI + 35 Rust tests green; typecheck, eslint, clippy clean
 - 5,202-file workspace + 500-node board: ~2.2 s cold open, ~60 FPS pan
 - Windows installers: NSIS (per-user, silent-verified) and MSI
 - Remaining gaps and stage status are tracked in `docs/ROADMAP.md`
