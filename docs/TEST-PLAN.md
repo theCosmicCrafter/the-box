@@ -178,17 +178,19 @@ Live-verified 2026-10-13 (real CDP input, chaos workspace):
 
 | surface                                   | coverage                                              | status        |
 | ----------------------------------------- | ----------------------------------------------------- | ------------- |
-| Status bar (counts + zoom readout)        | typecheck/lint; render is pure props                  | unit          |
-| Status-bar zoom controls (-/%/+/Fit)      | `zoomRequest` nonce prop, `zoomAt`/`zoomToFit` math   | unit          |
-| Tab middle-click close + Ctrl+W           | TabBar `onAuxClick`, App global keydown               | unit          |
-| FileTree context menu (new/open/reveal/…) | shared `ContextMenu`; existing bridge commands        | unit          |
+| Status bar (counts + zoom readout)        | live CDP: renders "0 nodes 0 edges 25 files", 100%    | live          |
+| Status-bar zoom controls (-/%/+/Fit)      | live CDP: + stepped 100→125%, - returned to 100%      | live          |
+| Tab middle-click close + Ctrl+W           | live CDP: Ctrl+W closed active board; middle-click wired (inactive tabs no-op, same as ×) | live |
+| FileTree context menu (new/open/reveal/…) | live CDP: contextmenu on file row opened ops menu     | live          |
 | `.box/tmp` + `.box/thumbs` GC             | `gc_box_dirs` adversarial tests (stale/fresh/cap)     | unit          |
 | Excerpt-loader + spatial-audio perf fixes | keyed effects/refs; no behavior change                | unit          |
 
-Live verification owed on next app session: status bar renders and
-zoom % tracks wheel zoom; tree menu creates `untitled.md` in the right
-dir and trash round-trips through the watcher; middle-click and Ctrl+W
-close the active board without touching `.box.canvas` files.
+Live-verified 2026-10-25 via `tauri dev` + CDP on the dev workspace:
+status bar counts, zoom step both directions, tree context menu,
+Ctrl+W board close. Fit button shares the zoomRequest path (Shift+1
+already live-verified earlier). Middle-click on a non-active tab is a
+deliberate no-op - tabs enumerate all `.canvas` files, only the active
+board can close (same contract as the × button).
 ink draw writes `untitled-1.md.ink.svg` (`box-format: box.ink/1`,
 pressure-varying polygon, node gains `box-ink`); ink erase removes strokes
 and trashes the emptied sidecar (Recoverable by design, `box-ink` key
